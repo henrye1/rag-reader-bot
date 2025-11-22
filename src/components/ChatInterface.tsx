@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Bot, User, Loader2 } from "lucide-react";
+import { Send, Bot, User, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -89,6 +89,14 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
     }
   };
 
+  const handleClearChat = () => {
+    setMessages([]);
+    toast({
+      title: "Chat cleared",
+      description: "Conversation history has been reset",
+    });
+  };
+
   return (
     <Card className="h-full flex flex-col shadow-elegant">
       <CardContent className="flex-1 flex flex-col p-0">
@@ -160,6 +168,16 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
         {/* Input Area */}
         <div className="border-t border-border p-4 bg-card">
           <div className="flex gap-2">
+            {messages.length > 0 && (
+              <Button
+                onClick={handleClearChat}
+                variant="outline"
+                size="icon"
+                title="Clear chat"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
