@@ -27,6 +27,11 @@ const Index = () => {
     setDocuments((prev) => prev.filter((doc) => doc.id !== id));
   };
 
+  const handleClearAllDocuments = () => {
+    setDocuments([]);
+    setSelectedFile(null);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-subtle">
       {/* Header */}
@@ -54,7 +59,11 @@ const Index = () => {
               selectedFile={selectedFile}
               onUploadComplete={handleFileUpload}
             />
-            <DocumentList documents={documents} onRemove={handleRemoveDocument} />
+            <DocumentList 
+              documents={documents} 
+              onRemove={handleRemoveDocument}
+              onClearAll={handleClearAllDocuments}
+            />
           </aside>
 
           {/* Chat Area */}

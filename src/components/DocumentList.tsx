@@ -1,4 +1,4 @@
-import { FileText, X } from "lucide-react";
+import { FileText, X, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { UploadedDocument } from "@/pages/Index";
@@ -7,9 +7,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 interface DocumentListProps {
   documents: UploadedDocument[];
   onRemove: (id: string) => void;
+  onClearAll: () => void;
 }
 
-export const DocumentList = ({ documents, onRemove }: DocumentListProps) => {
+export const DocumentList = ({ documents, onRemove, onClearAll }: DocumentListProps) => {
   if (documents.length === 0) {
     return (
       <Card className="shadow-soft">
@@ -24,8 +25,21 @@ export const DocumentList = ({ documents, onRemove }: DocumentListProps) => {
   return (
     <Card className="shadow-soft">
       <CardHeader>
-        <CardTitle>Your Documents</CardTitle>
-        <CardDescription>{documents.length} document(s) uploaded</CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Your Documents</CardTitle>
+            <CardDescription>{documents.length} document(s) uploaded</CardDescription>
+          </div>
+          <Button
+            onClick={onClearAll}
+            variant="outline"
+            size="sm"
+            className="gap-2"
+          >
+            <Trash2 className="h-4 w-4" />
+            Clear All
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         <ScrollArea className="h-[300px] pr-4">
