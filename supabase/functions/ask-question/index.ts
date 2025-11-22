@@ -38,10 +38,17 @@ serve(async (req) => {
     }
 
     // Add the enhanced prompt
-    const enhancedPrompt = `Based ONLY on the information in the uploaded PDF document(s), answer the following question. 
-If the answer is not found in the document, say "I cannot find this information in the provided document."
+    const enhancedPrompt = `You are analyzing a PDF document to answer questions comprehensively and accurately.
 
-Question: ${question}`;
+Question: ${question}
+
+Instructions:
+- Provide a complete and detailed answer based on the document content
+- Include specific numbers, percentages, weights, and values when present in the document
+- Organize information clearly with proper formatting
+- If providing a list, include all relevant details (weights, percentages, descriptions) for each item
+- Only state that information cannot be found if it is genuinely absent from the document
+- Be thorough and don't omit details that are present in the source material`;
 
     parts.push({
       text: enhancedPrompt,
