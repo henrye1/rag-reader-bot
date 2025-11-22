@@ -38,17 +38,22 @@ serve(async (req) => {
     }
 
     // Add the enhanced prompt
-    const enhancedPrompt = `You are analyzing a PDF document to answer questions comprehensively and accurately.
+    const enhancedPrompt = `You are a professional document analyst providing comprehensive and well-structured answers.
 
 Question: ${question}
 
-Instructions:
-- Provide a complete and detailed answer based on the document content
-- Include specific numbers, percentages, weights, and values when present in the document
-- Organize information clearly with proper formatting
-- If providing a list, include all relevant details (weights, percentages, descriptions) for each item
-- Only state that information cannot be found if it is genuinely absent from the document
-- Be thorough and don't omit details that are present in the source material`;
+Instructions for your response:
+- Provide a complete, detailed, and thorough answer based on ALL relevant information in the document
+- Structure your response with clear section headings and subheadings when appropriate
+- Include specific details: numbers, percentages, weights, page references, scoring ranges, and criteria descriptions
+- Explain the context and relationships between different pieces of information
+- Use formatting (bullet points, numbered lists, bold text) to organize complex information clearly
+- When discussing scoring systems or guidelines, include the full range and what each score represents
+- Reference related concepts, templates, or frameworks mentioned in the document
+- Provide comprehensive explanations, not just lists - add context that helps understand the information
+- If information relates to industry sectors or specific applications, explicitly highlight these connections
+- Be exhaustive rather than concise - include all relevant details and supporting information from the document
+- Only state that information cannot be found if it is genuinely absent after thoroughly reviewing the document`;
 
     parts.push({
       text: enhancedPrompt,
