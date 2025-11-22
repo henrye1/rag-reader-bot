@@ -26,35 +26,61 @@ serve(async (req) => {
 
     console.log(`Uploading file: ${file.name}, size: ${file.size} bytes`);
 
-    // Convert file to base64 for Google API
-    const arrayBuffer = await file.arrayBuffer();
-    const base64Data = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    // Step 1: Start resumable upload session
+    const uploadUrl = `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${GOOGLE_API_KEY}`;
+    
+    const metadataHeaders = {
+      "X-Goog-Upload-Protocol": "resumable",
+      "X-Goog-Upload-Command": "start",
+      "X-Goog-Upload-Header-Content-Length": file.size.toString(),
+      "X-Goog-Upload-Header-Content-Type": file.type,
+      "Content-Type": "application/json",
+    };
 
-    // Upload file to Google Gemini Files API
-    const uploadResponse = await fetch(
-      "https://generativelanguage.googleapis.com/upload/v1beta/files?key=" + GOOGLE_API_KEY,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          file: {
-            display_name: file.name,
-            mime_type: "application/pdf",
-          },
-          inline_data: {
-            data: base64Data,
-            mime_type: "application/pdf",
-          },
-        }),
-      }
-    );
+    const metadata = {
+      file: {
+        display_name: file.name,
+      },
+    };
+
+    const startResponse = await fetch(uploadUrl, {
+      method: "POST",
+      headers: metadataHeaders,
+      body: JSON.stringify(metadata),
+    });
+
+    if (!startResponse.ok) {
+      const errorText = await startResponse.text();
+      console.error("Start upload error:", startResponse.status, errorText);
+      throw new Error(`Failed to start upload: ${errorText}`);
+    }
+
+    const uploadSessionUrl = startResponse.headers.get("X-Goog-Upload-URL");
+    if (!uploadSessionUrl) {
+      throw new Error("No upload session URL returned");
+    }
+
+    console.log("Upload session started");
+
+    // Step 2: Upload the actual file content
+    const fileBytes = await file.arrayBuffer();
+    
+    const uploadHeaders = {
+      "Content-Length": file.size.toString(),
+      "X-Goog-Upload-Offset": "0",
+      "X-Goog-Upload-Command": "upload, finalize",
+    };
+
+    const uploadResponse = await fetch(uploadSessionUrl, {
+      method: "POST",
+      headers: uploadHeaders,
+      body: fileBytes,
+    });
 
     if (!uploadResponse.ok) {
       const errorText = await uploadResponse.text();
       console.error("Upload error:", uploadResponse.status, errorText);
-      throw new Error(`Failed to upload file to Gemini: ${errorText}`);
+      throw new Error(`Failed to upload file: ${errorText}`);
     }
 
     const uploadData = await uploadResponse.json();
@@ -65,8 +91,8 @@ serve(async (req) => {
       throw new Error("No file name returned from upload");
     }
 
-    // Wait for file to be processed
-    let fileState = "PROCESSING";
+    // Step 3: Wait for file to be processed
+    let fileState = uploadData.file?.state || "PROCESSING";
     let attempts = 0;
     const maxAttempts = 30; // 30 seconds max
 
@@ -97,6 +123,8 @@ serve(async (req) => {
     if (fileState !== "ACTIVE") {
       throw new Error("File processing timeout");
     }
+
+    console.log("File ready:", fileName);
 
     return new Response(
       JSON.stringify({
