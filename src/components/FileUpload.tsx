@@ -1,21 +1,22 @@
 import { useCallback, useState } from "react";
-import { Upload, FileText, Loader2 } from "lucide-react";
+import { Upload, FileText, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import type { UploadedDocument } from "@/pages/Index";
 
-const MAX_FILE_SIZE_MB = 20;
+const MAX_FILE_SIZE_MB = 10;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 interface FileUploadProps {
   onFileSelect: (file: File) => void;
   selectedFile: File | null;
   onUploadComplete: (doc: UploadedDocument) => void;
+  onClearSelected: () => void;
 }
 
-export const FileUpload = ({ onFileSelect, selectedFile, onUploadComplete }: FileUploadProps) => {
+export const FileUpload = ({ onFileSelect, selectedFile, onUploadComplete, onClearSelected }: FileUploadProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const { toast } = useToast();
@@ -177,6 +178,14 @@ export const FileUpload = ({ onFileSelect, selectedFile, onUploadComplete }: Fil
                   {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                 </p>
               </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onClearSelected}
+                aria-label="Remove selected file"
+              >
+                <X className="h-4 w-4" />
+              </Button>
             </div>
             <Button
               onClick={handleUpload}
