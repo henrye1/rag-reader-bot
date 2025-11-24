@@ -52,7 +52,7 @@ Instructions for your response:
 - Reference related concepts, templates, or frameworks mentioned in the document
 - Provide comprehensive explanations, not just lists - add context that helps understand the information
 - If information relates to industry sectors or specific applications, explicitly highlight these connections
-- Be exhaustive rather than concise - include all relevant details and supporting information from the document
+- Be concise rather than exhaustive - include all relevant details and supporting information from the document
 - Only state that information cannot be found if it is genuinely absent after thoroughly reviewing the document`;
 
     parts.push({
@@ -80,18 +80,20 @@ Instructions for your response:
             ],
           }),
           signal: controller.signal,
-        }
+        },
       );
 
       clearTimeout(timeoutId);
     } catch (error: unknown) {
       clearTimeout(timeoutId);
-      
-      if (error instanceof Error && error.name === 'AbortError') {
+
+      if (error instanceof Error && error.name === "AbortError") {
         console.error("Request timeout - Gemini API took too long to respond");
-        throw new Error("Request timeout: The AI model took too long to process your question. Please try with a shorter question or fewer documents.");
+        throw new Error(
+          "Request timeout: The AI model took too long to process your question. Please try with a shorter question or fewer documents.",
+        );
       }
-      
+
       throw error;
     }
 
@@ -112,7 +114,7 @@ Instructions for your response:
       }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      },
     );
   } catch (error) {
     console.error("Ask question error:", error);
@@ -123,7 +125,7 @@ Instructions for your response:
       {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      },
     );
   }
 });
