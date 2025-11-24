@@ -18,6 +18,10 @@ const Index = () => {
     setSelectedFile(file);
   };
 
+  const handleClearSelectedFile = () => {
+    setSelectedFile(null);
+  };
+
   const handleFileUpload = (doc: UploadedDocument) => {
     setDocuments((prev) => [...prev, doc]);
     setSelectedFile(null);
@@ -58,6 +62,7 @@ const Index = () => {
               onFileSelect={handleFileSelect}
               selectedFile={selectedFile}
               onUploadComplete={handleFileUpload}
+              onClearSelected={handleClearSelectedFile}
             />
             <DocumentList 
               documents={documents} 
