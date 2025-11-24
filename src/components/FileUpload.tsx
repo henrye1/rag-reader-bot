@@ -6,6 +6,9 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import type { UploadedDocument } from "@/pages/Index";
 
+const MAX_FILE_SIZE_MB = 20;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
 interface FileUploadProps {
   onFileSelect: (file: File) => void;
   selectedFile: File | null;
@@ -36,6 +39,14 @@ export const FileUpload = ({ onFileSelect, selectedFile, onUploadComplete }: Fil
       const pdfFile = files.find((file) => file.type === "application/pdf");
 
       if (pdfFile) {
+        if (pdfFile.size > MAX_FILE_SIZE_BYTES) {
+          toast({
+            title: "File too large",
+            description: `Maximum file size is ${MAX_FILE_SIZE_MB} MB. Your file is ${(pdfFile.size / 1024 / 1024).toFixed(2)} MB`,
+            variant: "destructive",
+          });
+          return;
+        }
         onFileSelect(pdfFile);
       } else {
         toast({
@@ -53,6 +64,14 @@ export const FileUpload = ({ onFileSelect, selectedFile, onUploadComplete }: Fil
       const file = e.target.files?.[0];
       if (file) {
         if (file.type === "application/pdf") {
+          if (file.size > MAX_FILE_SIZE_BYTES) {
+            toast({
+              title: "File too large",
+              description: `Maximum file size is ${MAX_FILE_SIZE_MB} MB. Your file is ${(file.size / 1024 / 1024).toFixed(2)} MB`,
+              variant: "destructive",
+            });
+            return;
+          }
           onFileSelect(file);
         } else {
           toast({
