@@ -42,18 +42,61 @@ serve(async (req) => {
 
 Question: ${question}
 
-Instructions for your response:
-- Provide a complete, detailed, and thorough answer based on ALL relevant information in the document
-- Structure your response with clear section headings and subheadings when appropriate
-- Include specific details: numbers, percentages, weights, page references, scoring ranges, and criteria descriptions
-- Explain the context and relationships between different pieces of information
-- Use formatting (bullet points, numbered lists, bold text) to organize complex information clearly
-- When discussing scoring systems or guidelines, include the full range and what each score represents
-- Reference related concepts, templates, or frameworks mentioned in the document
-- Provide comprehensive explanations, not just lists - add context that helps understand the information
-- If information relates to industry sectors or specific applications, explicitly highlight these connections
-- Be concise rather than exhaustive - include all relevant details and supporting information from the document
-- Only state that information cannot be found if it is genuinely absent after thoroughly reviewing the document`;
+You are an ICAAP and stress-testing specialist assisting with a gap assessment of Discovery Bank’s ICAAP and stress testing framework.
+
+You are given excerpts from the ICAAP / Stress Testing / Capital Management report as context (see below). Focus particularly on:
+- The stress testing and capital management sections, and
+- The assessment/checklist tables near the end (RAG “Red/Amber/Green” tables, “Criteria / Discovery / Rating” tables, and related narrative).
+
+CONTEXT:
+{{context}}
+
+YOUR TASKS
+1. For each of the following four ICAAP stress-testing objectives:
+   - Risk mitigation and contingency planning
+   - Strategic planning and budgeting
+   - Capital planning and management
+   - Stakeholder communication
+
+   do ALL of the following:
+   a) Describe how the current ICAAP framework addresses this objective, based ONLY on the text in the context.
+   b) Identify strengths and weaknesses, referencing any assessment/checklist content (e.g. RAG tables, “Criteria / Discovery / Rating”).
+   c) Provide an overall RAG rating (Green / Amber / Red) for this objective, with clear justification.
+   d) List the key gaps or issues relating to this objective.
+   e) Propose specific, actionable recommendations to close those gaps and move towards best practice.
+
+INSTRUCTIONS FOR YOUR RESPONSE (MUST-FOLLOW)
+- Use ONLY the information in the provided ICAAP context. Do not invent or assume facts.
+- Provide a COMPLETE, DETAILED, and THOROUGH answer based on ALL relevant information in the context.
+- Structure your response with clear headings and subheadings. Use the following top-level structure:
+  1. Objective: Risk Mitigation and Contingency Planning
+  2. Objective: Strategic Planning and Budgeting
+  3. Objective: Capital Planning and Management
+  4. Objective: Stakeholder Communication
+
+  Under EACH objective, use these subheadings:
+  - Objective Definition
+  - Current Coverage (from ICAAP)
+  - RAG Assessment (for this objective)
+  - Identified Gaps / Weaknesses
+  - Recommended Enhancements (Target-State Suggestions)
+
+- Include specific quantitative and qualitative details wherever available, such as:
+  - Numbers and monetary values (e.g. capital amounts, RWE, funding plan amounts, surplus).
+  - Percentages and ratios (e.g. CET1 ratios, total CAR, SCR cover ratios, leverage ratio, buffer sizes).
+  - Scenario magnitudes and weightings (e.g. +20% shocks, 50 bps, “25% negative / 75% base”, “1‑in‑25‑year severity”).
+  - Time horizons (e.g. FY2025–FY2030, 12‑month PD horizon).
+  - Page or section references where they appear in the text (e.g. “(Page 137)”, “Section 7.1: Credit Risk”, “Table 6: RAG Status”).
+
+- When you see any RAG / rating / scoring system, EXPLAIN the full scale and what each rating means. For example, if the table shows:
+  - NO ISSUE – In full compliance with IFRS 9 requirements; recommendation: None.
+  - MODERATE ISSUE – Generally complies with IFRS 9 requirements, but minimal enhancements required; recommendation: To be addressed in the course of business-as-usual.
+  - SIGNIFICANT ISSUE – Failure to comply with IFRS 9 requirements; recommendation: To be addressed immediately.
+  Then:
+  - Restate that scale in your answer, and
+  - Explicitly link your Green/Amber/Red assessment for each objective back to this scale and the underlying criteria.
+
+- Explain the CONTEXT;
 
     parts.push({
       text: enhancedPrompt,
