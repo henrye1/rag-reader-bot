@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Bot, User, Loader2, Trash2 } from "lucide-react";
+import { Send, Bot, User, Loader2, Trash2, Paperclip, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -22,7 +22,10 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -31,13 +34,35 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
     }
   }, [messages]);
 
-  const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const pdfFiles = files.filter((file) => file.type === "application/pdf");
 
-    if (documents.length === 0) {
+    if (pdfFiles.length !== files.length) {
       toast({
-        title: "No documents uploaded",
-        description: "Please upload a document first",
+        title: "Invalid file type",
+        description: "Only PDF files are supported",
+        variant: "destructive",
+      });
+    }
+
+    setAttachedFiles((prev) => [...prev, ...pdfFiles]);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const handleRemoveAttachment = (index: number) => {
+    setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSend = async () => {
+    if (!input.trim() || isLoading || isUploading) return;
+
+    if (documents.length === 0 && attachedFiles.length === 0) {
+      toast({
+        title: "No documents",
+        description: "Please upload a document or attach files to your question",
         variant: "destructive",
       });
       return;
@@ -54,10 +79,38 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
     setIsLoading(true);
 
     try {
+      // Upload attached files first if any
+      let attachedFileIds: string[] = [];
+      if (attachedFiles.length > 0) {
+        setIsUploading(true);
+        for (const file of attachedFiles) {
+          const formData = new FormData();
+          formData.append("file", file);
+
+          const { data: uploadData, error: uploadError } = await supabase.functions.invoke(
+            "upload-document",
+            {
+              body: formData,
+            }
+          );
+
+          if (uploadError) throw uploadError;
+          attachedFileIds.push(uploadData.fileId);
+        }
+        setIsUploading(false);
+        setAttachedFiles([]);
+      }
+
+      // Combine all file IDs
+      const allFileIds = [
+        ...documents.map((doc) => doc.id),
+        ...attachedFileIds,
+      ];
+
       const { data, error } = await supabase.functions.invoke("ask-question", {
         body: {
           question: input,
-          fileIds: documents.map((doc) => doc.id),
+          fileIds: allFileIds,
         },
       });
 
@@ -79,6 +132,7 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
       });
     } finally {
       setIsLoading(false);
+      setIsUploading(false);
     }
   };
 
@@ -167,6 +221,29 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
 
         {/* Input Area */}
         <div className="border-t border-border p-4 bg-card">
+          {/* Attached Files Display */}
+          {attachedFiles.length > 0 && (
+            <div className="mb-3 flex flex-wrap gap-2">
+              {attachedFiles.map((file, index) => (
+                <div
+                  key={index}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-secondary rounded-lg text-sm"
+                >
+                  <Paperclip className="h-3 w-3" />
+                  <span className="text-secondary-foreground">{file.name}</span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5"
+                    onClick={() => handleRemoveAttachment(index)}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="flex gap-2">
             {messages.length > 0 && (
               <Button
@@ -178,25 +255,43 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
                 <Trash2 className="h-4 w-4" />
               </Button>
             )}
-            <Input
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf"
+              multiple
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+            <Button
+              onClick={() => fileInputRef.current?.click()}
+              variant="outline"
+              size="icon"
+              title="Attach files"
+              disabled={isLoading || isUploading}
+            >
+              <Paperclip className="h-4 w-4" />
+            </Button>
+            <Textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyPress={handleKeyPress}
+              onKeyDown={handleKeyPress}
               placeholder={
-                documents.length === 0
-                  ? "Upload a document first..."
+                documents.length === 0 && attachedFiles.length === 0
+                  ? "Upload documents or attach files to ask questions..."
                   : "Ask a question about your documents..."
               }
-              disabled={isLoading || documents.length === 0}
-              className="flex-1"
+              disabled={isLoading || isUploading}
+              className="flex-1 min-h-[80px] max-h-[200px] resize-none"
+              rows={3}
             />
             <Button
               onClick={handleSend}
-              disabled={!input.trim() || isLoading || documents.length === 0}
+              disabled={!input.trim() || isLoading || isUploading || (documents.length === 0 && attachedFiles.length === 0)}
               className="bg-gradient-primary hover:opacity-90 transition-opacity"
               size="icon"
             >
-              <Send className="h-4 w-4" />
+              {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </Button>
           </div>
         </div>
