@@ -24,9 +24,35 @@ serve(async (req) => {
       throw new Error("No file provided");
     }
 
-    console.log(`Uploading file: ${file.name}, size: ${file.size} bytes`);
+    console.log(`Uploading file: ${file.name}, size: ${file.size} bytes, type: ${file.type}`);
 
-    // Step 1: Start resumable upload session
+    // Handle JSON files directly without Google API
+    if (file.type === "application/json" || file.name.endsWith(".json")) {
+      console.log("Processing JSON file directly");
+      const jsonContent = await file.text();
+      
+      // Validate JSON
+      try {
+        JSON.parse(jsonContent);
+      } catch (e) {
+        throw new Error("Invalid JSON file");
+      }
+
+      // Return immediately for JSON files - no Google API processing needed
+      return new Response(
+        JSON.stringify({
+          fileId: `json-${Date.now()}-${file.name}`,
+          displayName: file.name,
+          state: "ACTIVE",
+          content: jsonContent,
+        }),
+        {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    // Step 1: Start resumable upload session for PDF files
     const uploadUrl = `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${GOOGLE_API_KEY}`;
     
     const metadataHeaders = {
