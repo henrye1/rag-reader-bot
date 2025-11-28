@@ -37,22 +37,24 @@ export const FileUpload = ({ onFileSelect, selectedFile, onUploadComplete, onCle
       setIsDragging(false);
 
       const files = Array.from(e.dataTransfer.files);
-      const pdfFile = files.find((file) => file.type === "application/pdf");
+      const validFile = files.find((file) => 
+        file.type === "application/pdf" || file.type === "application/json"
+      );
 
-      if (pdfFile) {
-        if (pdfFile.size > MAX_FILE_SIZE_BYTES) {
+      if (validFile) {
+        if (validFile.size > MAX_FILE_SIZE_BYTES) {
           toast({
             title: "File too large",
-            description: `Maximum file size is ${MAX_FILE_SIZE_MB} MB. Your file is ${(pdfFile.size / 1024 / 1024).toFixed(2)} MB`,
+            description: `Maximum file size is ${MAX_FILE_SIZE_MB} MB. Your file is ${(validFile.size / 1024 / 1024).toFixed(2)} MB`,
             variant: "destructive",
           });
           return;
         }
-        onFileSelect(pdfFile);
+        onFileSelect(validFile);
       } else {
         toast({
           title: "Invalid file type",
-          description: "Please upload a PDF file",
+          description: "Please upload a PDF or JSON file",
           variant: "destructive",
         });
       }
@@ -64,7 +66,7 @@ export const FileUpload = ({ onFileSelect, selectedFile, onUploadComplete, onCle
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (file) {
-        if (file.type === "application/pdf") {
+        if (file.type === "application/pdf" || file.type === "application/json") {
           if (file.size > MAX_FILE_SIZE_BYTES) {
             toast({
               title: "File too large",
@@ -77,7 +79,7 @@ export const FileUpload = ({ onFileSelect, selectedFile, onUploadComplete, onCle
         } else {
           toast({
             title: "Invalid file type",
-            description: "Please upload a PDF file",
+            description: "Please upload a PDF or JSON file",
             variant: "destructive",
           });
         }
@@ -139,7 +141,7 @@ export const FileUpload = ({ onFileSelect, selectedFile, onUploadComplete, onCle
     <Card className="shadow-soft">
       <CardHeader>
         <CardTitle>Upload Document</CardTitle>
-        <CardDescription>Upload a PDF to ask questions about it</CardDescription>
+        <CardDescription>Upload PDF or JSON files to ask questions about them</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div
@@ -160,12 +162,12 @@ export const FileUpload = ({ onFileSelect, selectedFile, onUploadComplete, onCle
               <Upload className="h-6 w-6 text-primary" />
             </div>
             <div>
-              <p className="font-medium text-foreground">Drop your PDF here</p>
-              <p className="text-sm text-muted-foreground mt-1">or click to browse</p>
+              <p className="font-medium text-foreground">Drop your files here</p>
+              <p className="text-sm text-muted-foreground mt-1">PDF or JSON files • or click to browse</p>
             </div>
             <input
               type="file"
-              accept=".pdf"
+              accept=".pdf,.json,application/pdf,application/json"
               onChange={handleFileInput}
               className="hidden"
               id="file-upload"
