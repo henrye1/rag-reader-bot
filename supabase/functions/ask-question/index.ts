@@ -16,7 +16,7 @@ serve(async (req) => {
       throw new Error("GOOGLE_API_KEY is not configured");
     }
 
-    const { question, fileIds } = await req.json();
+    const { question, fileIds, customPrompt } = await req.json();
 
     if (!question || !fileIds || fileIds.length === 0) {
       throw new Error("Question and fileIds are required");
@@ -37,16 +37,16 @@ serve(async (req) => {
       });
     }
 
-    // Add the enhanced prompt
-    const enhancedPrompt = `You are a professional document analyst providing comprehensive and well-structured answers.
+    // Use custom prompt if provided, otherwise use default enhanced prompt
+    const defaultPrompt = `You are a professional document analyst providing comprehensive and well-structured answers.
 
 Question: ${question}
 
-You are an ICAAP and stress-testing specialist assisting with a gap assessment of Discovery Bank’s ICAAP and stress testing framework.
+You are an ICAAP and stress-testing specialist assisting with a gap assessment of Discovery Bank's ICAAP and stress testing framework.
 
 You are given excerpts from the ICAAP / Stress Testing / Capital Management report as context (see below). Focus particularly on:
 - The stress testing and capital management sections, and
-- The assessment/checklist tables near the end (RAG “Red/Amber/Green” tables, “Criteria / Discovery / Rating” tables, and related narrative).
+- The assessment/checklist tables near the end (RAG "Red/Amber/Green" tables, "Criteria / Discovery / Rating" tables, and related narrative).
 
 CONTEXT:
 {{context}}
@@ -60,7 +60,7 @@ YOUR TASKS
 
    do ALL of the following:
    a) Describe how the current ICAAP framework addresses this objective, based ONLY on the text in the context.
-   b) Identify strengths and weaknesses, referencing any assessment/checklist content (e.g. RAG tables, “Criteria / Discovery / Rating”).
+   b) Identify strengths and weaknesses, referencing any assessment/checklist content (e.g. RAG tables, "Criteria / Discovery / Rating").
    c) Provide an overall RAG rating (Green / Amber / Red) for this objective, with clear justification.
    d) List the key gaps or issues relating to this objective.
    e) Propose specific, actionable recommendations to close those gaps and move towards best practice.
@@ -84,9 +84,9 @@ INSTRUCTIONS FOR YOUR RESPONSE (MUST-FOLLOW)
 - Include specific quantitative and qualitative details wherever available, such as:
   - Numbers and monetary values (e.g. capital amounts, RWE, funding plan amounts, surplus).
   - Percentages and ratios (e.g. CET1 ratios, total CAR, SCR cover ratios, leverage ratio, buffer sizes).
-  - Scenario magnitudes and weightings (e.g. +20% shocks, 50 bps, “25% negative / 75% base”, “1‑in‑25‑year severity”).
+  - Scenario magnitudes and weightings (e.g. +20% shocks, 50 bps, "25% negative / 75% base", "1‑in‑25‑year severity").
   - Time horizons (e.g. FY2025–FY2030, 12‑month PD horizon).
-  - Page or section references where they appear in the text (e.g. “(Page 137)”, “Section 7.1: Credit Risk”, “Table 6: RAG Status”).
+  - Page or section references where they appear in the text (e.g. "(Page 137)", "Section 7.1: Credit Risk", "Table 6: RAG Status").
 
 - When you see any RAG / rating / scoring system, EXPLAIN the full scale and what each rating means. For example, if the table shows:
   - NO ISSUE – In full compliance with IFRS 9 requirements; recommendation: None.
@@ -96,10 +96,12 @@ INSTRUCTIONS FOR YOUR RESPONSE (MUST-FOLLOW)
   - Restate that scale in your answer, and
   - Explicitly link your Green/Amber/Red assessment for each objective back to this scale and the underlying criteria.
 
-- Explain the CONTEXT;
+- Explain the CONTEXT;`;
+
+    const finalPrompt = customPrompt || defaultPrompt;
 
     parts.push({
-      text: enhancedPrompt,
+      text: finalPrompt.replace('${question}', question),
     });
 
     // Make request to Gemini API with timeout
