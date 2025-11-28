@@ -367,7 +367,7 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".pdf,.json,application/pdf,application/json"
+              accept=".pdf,.json"
               multiple
               onChange={handleFileSelect}
               className="hidden"
