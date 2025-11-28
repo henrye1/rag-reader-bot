@@ -10,13 +10,14 @@ const MAX_FILE_SIZE_MB = 40;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 interface FileUploadProps {
-  onFileSelect: (file: File) => void;
-  selectedFile: File | null;
-  onUploadComplete: (doc: UploadedDocument) => void;
+  onFileSelect: (files: File[]) => void;
+  selectedFiles: File[];
+  onUploadComplete: (docs: UploadedDocument[]) => void;
   onClearSelected: () => void;
+  onRemoveFile: (index: number) => void;
 }
 
-export const FileUpload = ({ onFileSelect, selectedFile, onUploadComplete, onClearSelected }: FileUploadProps) => {
+export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onClearSelected, onRemoveFile }: FileUploadProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const { toast } = useToast();
@@ -45,20 +46,29 @@ export const FileUpload = ({ onFileSelect, selectedFile, onUploadComplete, onCle
         return isPdf || isJson;
       });
 
-      if (validFile) {
-        if (validFile.size > MAX_FILE_SIZE_BYTES) {
-          toast({
-            title: "File too large",
-            description: `Maximum file size is ${MAX_FILE_SIZE_MB} MB. Your file is ${(validFile.size / 1024 / 1024).toFixed(2)} MB`,
-            variant: "destructive",
-          });
-          return;
-        }
-        onFileSelect(validFile);
+      const validFiles = files.filter((file) => {
+        const type = file.type;
+        const name = file.name.toLowerCase();
+        return (type === "application/pdf" || name.endsWith(".pdf") ||
+                type === "application/json" || name.endsWith(".json"));
+      });
+
+      const oversizedFiles = validFiles.filter(f => f.size > MAX_FILE_SIZE_BYTES);
+      if (oversizedFiles.length > 0) {
+        toast({
+          title: "Files too large",
+          description: `Maximum file size is ${MAX_FILE_SIZE_MB} MB per file`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (validFiles.length > 0) {
+        onFileSelect(validFiles);
       } else {
         toast({
           title: "Invalid file type",
-          description: "Please upload a PDF or JSON file",
+          description: "Please upload PDF or JSON files",
           variant: "destructive",
         });
       }
@@ -68,71 +78,76 @@ export const FileUpload = ({ onFileSelect, selectedFile, onUploadComplete, onCle
 
   const handleFileInput = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) {
+      const files = Array.from(e.target.files || []);
+      const validFiles = files.filter((file) => {
         const type = file.type;
         const name = file.name.toLowerCase();
-        const isPdf = type === "application/pdf" || name.endsWith(".pdf");
-        const isJson = type === "application/json" || name.endsWith(".json");
+        return (type === "application/pdf" || name.endsWith(".pdf") ||
+                type === "application/json" || name.endsWith(".json"));
+      });
 
-        if (isPdf || isJson) {
-          if (file.size > MAX_FILE_SIZE_BYTES) {
-            toast({
-              title: "File too large",
-              description: `Maximum file size is ${MAX_FILE_SIZE_MB} MB. Your file is ${(file.size / 1024 / 1024).toFixed(2)} MB`,
-              variant: "destructive",
-            });
-            return;
-          }
-          onFileSelect(file);
-        } else {
-          toast({
-            title: "Invalid file type",
-            description: "Please upload a PDF or JSON file",
-            variant: "destructive",
-          });
-        }
+      const oversizedFiles = validFiles.filter(f => f.size > MAX_FILE_SIZE_BYTES);
+      if (oversizedFiles.length > 0) {
+        toast({
+          title: "Files too large",
+          description: `Maximum file size is ${MAX_FILE_SIZE_MB} MB per file`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (validFiles.length > 0) {
+        onFileSelect(validFiles);
+      } else if (files.length > 0) {
+        toast({
+          title: "Invalid file type",
+          description: "Please upload PDF or JSON files",
+          variant: "destructive",
+        });
       }
     },
     [onFileSelect, toast]
   );
 
   const handleUpload = async () => {
-    if (!selectedFile) return;
+    if (selectedFiles.length === 0) return;
 
     setIsUploading(true);
+    const uploadedDocs: UploadedDocument[] = [];
+    
     try {
-      // Call edge function to upload and process the PDF
-      const formData = new FormData();
-      formData.append("file", selectedFile);
+      for (const file of selectedFiles) {
+        const formData = new FormData();
+        formData.append("file", file);
 
-      const { data, error } = await supabase.functions.invoke("upload-document", {
-        body: formData,
-      });
+        const { data, error } = await supabase.functions.invoke("upload-document", {
+          body: formData,
+        });
 
-      if (error) throw error;
+        if (error) throw error;
 
-      const newDoc: UploadedDocument = {
-        id: data.fileId,
-        name: selectedFile.name,
-        uploadedAt: new Date(),
-        content: data.content,
-        isJson: data.fileId?.startsWith('json-'),
-      };
+        uploadedDocs.push({
+          id: data.fileId,
+          name: file.name,
+          uploadedAt: new Date(),
+          content: data.content,
+          isJson: data.fileId?.startsWith('json-'),
+        });
+      }
 
-      onUploadComplete(newDoc);
+      onUploadComplete(uploadedDocs);
 
       toast({
         title: "Success",
-        description: "Document uploaded and ready for questions!",
+        description: `${uploadedDocs.length} document(s) uploaded and ready for questions!`,
       });
     } catch (error) {
       console.error("Upload error:", error);
       
-      let errorMessage = "Failed to upload document";
+      let errorMessage = "Failed to upload documents";
       if (error instanceof Error) {
         if (error.message.includes("Failed to send a request")) {
-          errorMessage = "Upload timeout or network error. This may be due to file size or temporary API limits. Please try again in a moment.";
+          errorMessage = "Upload timeout or network error. Please try again in a moment.";
         } else {
           errorMessage = error.message;
         }
@@ -179,6 +194,7 @@ export const FileUpload = ({ onFileSelect, selectedFile, onUploadComplete, onCle
             <input
               type="file"
               accept=".pdf,.json"
+              multiple
               onChange={handleFileInput}
               className="hidden"
               id="file-upload"
@@ -191,39 +207,52 @@ export const FileUpload = ({ onFileSelect, selectedFile, onUploadComplete, onCle
           </div>
         </div>
 
-        {selectedFile && (
+        {selectedFiles.length > 0 && (
           <div className="space-y-3">
-            <div className="flex items-center gap-3 p-3 rounded-lg bg-muted">
-              <FileText className="h-5 w-5 text-primary flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{selectedFile.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
-                </p>
-              </div>
+            <div className="space-y-2 max-h-[200px] overflow-y-auto">
+              {selectedFiles.map((file, index) => (
+                <div key={index} className="flex items-center gap-3 p-3 rounded-lg bg-muted">
+                  <FileText className="h-5 w-5 text-primary flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{file.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {(file.size / 1024 / 1024).toFixed(2)} MB
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onRemoveFile(index)}
+                    aria-label="Remove file"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
               <Button
-                variant="ghost"
-                size="icon"
                 onClick={onClearSelected}
-                aria-label="Remove selected file"
+                variant="outline"
+                className="flex-1"
               >
-                <X className="h-4 w-4" />
+                Clear All
+              </Button>
+              <Button
+                onClick={handleUpload}
+                disabled={isUploading}
+                className="flex-1 bg-gradient-primary hover:opacity-90 transition-opacity"
+              >
+                {isUploading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  `Upload ${selectedFiles.length} File(s)`
+                )}
               </Button>
             </div>
-            <Button
-              onClick={handleUpload}
-              disabled={isUploading}
-              className="w-full bg-gradient-primary hover:opacity-90 transition-opacity"
-            >
-              {isUploading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Processing...
-                </>
-              ) : (
-                "Upload & Process"
-              )}
-            </Button>
           </div>
         )}
       </CardContent>

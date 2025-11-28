@@ -2,6 +2,7 @@ import { useState } from "react";
 import { FileUpload } from "@/components/FileUpload";
 import { ChatInterface } from "@/components/ChatInterface";
 import { DocumentList } from "@/components/DocumentList";
+import { ReportViewer } from "@/components/ReportViewer";
 import { FileText } from "lucide-react";
 
 export interface UploadedDocument {
@@ -14,19 +15,25 @@ export interface UploadedDocument {
 
 const Index = () => {
   const [documents, setDocuments] = useState<UploadedDocument[]>([]);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [generatedReport, setGeneratedReport] = useState<string | null>(null);
+  const [reportData, setReportData] = useState<any>(null);
 
-  const handleFileSelect = (file: File) => {
-    setSelectedFile(file);
+  const handleFileSelect = (files: File[]) => {
+    setSelectedFiles((prev) => [...prev, ...files]);
   };
 
-  const handleClearSelectedFile = () => {
-    setSelectedFile(null);
+  const handleClearSelectedFiles = () => {
+    setSelectedFiles([]);
   };
 
-  const handleFileUpload = (doc: UploadedDocument) => {
-    setDocuments((prev) => [...prev, doc]);
-    setSelectedFile(null);
+  const handleRemoveFile = (index: number) => {
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleFileUpload = (docs: UploadedDocument[]) => {
+    setDocuments((prev) => [...prev, ...docs]);
+    setSelectedFiles([]);
   };
 
   const handleRemoveDocument = (id: string) => {
@@ -35,7 +42,12 @@ const Index = () => {
 
   const handleClearAllDocuments = () => {
     setDocuments([]);
-    setSelectedFile(null);
+    setSelectedFiles([]);
+  };
+
+  const handleReportGenerated = (html: string, data: any) => {
+    setGeneratedReport(html);
+    setReportData(data);
   };
 
   return (
@@ -57,26 +69,40 @@ const Index = () => {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
-        <div className="grid lg:grid-cols-[350px,1fr] gap-6 max-w-7xl mx-auto">
-          {/* Sidebar */}
-          <aside className="space-y-6">
-            <FileUpload
-              onFileSelect={handleFileSelect}
-              selectedFile={selectedFile}
-              onUploadComplete={handleFileUpload}
-              onClearSelected={handleClearSelectedFile}
-            />
-            <DocumentList 
-              documents={documents} 
-              onRemove={handleRemoveDocument}
-              onClearAll={handleClearAllDocuments}
-            />
-          </aside>
+        <div className="space-y-6 max-w-7xl mx-auto">
+          {/* File Upload Section */}
+          <div className="grid lg:grid-cols-[350px,1fr] gap-6">
+            <aside className="space-y-6">
+              <FileUpload
+                onFileSelect={handleFileSelect}
+                selectedFiles={selectedFiles}
+                onUploadComplete={handleFileUpload}
+                onClearSelected={handleClearSelectedFiles}
+                onRemoveFile={handleRemoveFile}
+              />
+              <DocumentList 
+                documents={documents} 
+                onRemove={handleRemoveDocument}
+                onClearAll={handleClearAllDocuments}
+              />
+            </aside>
 
-          {/* Chat Area */}
-          <div className="lg:min-h-[calc(100vh-200px)]">
-            <ChatInterface documents={documents} />
+            {/* Chat Area */}
+            <div className="lg:min-h-[calc(100vh-200px)]">
+              <ChatInterface 
+                documents={documents}
+                onReportGenerated={handleReportGenerated}
+              />
+            </div>
           </div>
+
+          {/* Report Viewer */}
+          {generatedReport && (
+            <ReportViewer 
+              reportHtml={generatedReport}
+              reportData={reportData}
+            />
+          )}
         </div>
       </main>
     </div>
