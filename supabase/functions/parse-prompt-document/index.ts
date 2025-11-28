@@ -26,15 +26,16 @@ serve(async (req) => {
     console.log(`Processing prompt document: ${file.name}`);
 
     // Upload file to Google's File API
+    const boundary = "----boundary" + Date.now();
     const uploadResponse = await fetch(
       `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${GOOGLE_API_KEY}`,
       {
         method: "POST",
         headers: {
           "X-Goog-Upload-Protocol": "multipart",
+          "Content-Type": `multipart/related; boundary=${boundary}`,
         },
         body: (() => {
-          const boundary = "----boundary" + Date.now();
           const metadataBlob = new Blob(
             [JSON.stringify({ file: { display_name: file.name } })],
             { type: "application/json" }
