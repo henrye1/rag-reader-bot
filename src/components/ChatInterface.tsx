@@ -65,15 +65,10 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const validTypes = [
-      "application/msword",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ];
-
-    if (!validTypes.includes(file.type)) {
+    if (file.type !== "text/plain") {
       toast({
         title: "Invalid file type",
-        description: "Please upload a Word document (.doc or .docx)",
+        description: "Please upload a plain text file (.txt)",
         variant: "destructive",
       });
       return;
@@ -341,7 +336,7 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
             <input
               ref={promptInputRef}
               type="file"
-              accept=".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              accept=".txt,text/plain"
               onChange={handlePromptUpload}
               className="hidden"
             />
@@ -349,7 +344,7 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
               onClick={() => promptInputRef.current?.click()}
               variant="outline"
               size="icon"
-              title="Upload custom prompt (Word doc)"
+              title="Upload custom prompt (text file)"
               disabled={isLoading || isUploading || isUploadingPrompt}
             >
               {isUploadingPrompt ? (
