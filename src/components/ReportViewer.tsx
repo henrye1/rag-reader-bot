@@ -1,0 +1,120 @@
+import { Download, FileText } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useToast } from "@/hooks/use-toast";
+
+interface ReportViewerProps {
+  reportHtml: string | null;
+  reportData: any;
+}
+
+export const ReportViewer = ({ reportHtml, reportData }: ReportViewerProps) => {
+  const { toast } = useToast();
+
+  const handleDownloadHtml = () => {
+    if (!reportHtml) return;
+
+    const blob = new Blob([reportHtml], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `KYC_Report_${Date.now()}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    toast({
+      title: "Report Downloaded",
+      description: "HTML report has been downloaded successfully",
+    });
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!reportHtml) return;
+
+    toast({
+      title: "PDF Generation",
+      description: "Converting HTML to PDF... This may take a moment.",
+    });
+
+    try {
+      // Use browser's print to PDF functionality
+      const printWindow = window.open("", "_blank");
+      if (printWindow) {
+        printWindow.document.write(reportHtml);
+        printWindow.document.close();
+        printWindow.focus();
+        
+        setTimeout(() => {
+          printWindow.print();
+          toast({
+            title: "Print Dialog Opened",
+            description: "Use 'Save as PDF' option in the print dialog",
+          });
+        }, 250);
+      }
+    } catch (error) {
+      console.error("PDF generation error:", error);
+      toast({
+        title: "Error",
+        description: "Failed to open print dialog",
+        variant: "destructive",
+      });
+    }
+  };
+
+  if (!reportHtml) {
+    return (
+      <Card className="shadow-soft">
+        <CardHeader>
+          <CardTitle>Generated Report</CardTitle>
+        </CardHeader>
+        <CardContent className="text-center py-12">
+          <FileText className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
+          <p className="text-muted-foreground">
+            No report generated yet. Ask a question to generate a report.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="shadow-soft">
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle>Generated Report</CardTitle>
+        <div className="flex gap-2">
+          <Button
+            onClick={handleDownloadHtml}
+            variant="outline"
+            size="sm"
+            className="gap-2"
+          >
+            <Download className="h-4 w-4" />
+            HTML
+          </Button>
+          <Button
+            onClick={handleDownloadPdf}
+            variant="outline"
+            size="sm"
+            className="gap-2"
+          >
+            <Download className="h-4 w-4" />
+            PDF
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="border rounded-lg overflow-hidden bg-white">
+          <iframe
+            srcDoc={reportHtml}
+            className="w-full h-[600px] border-0"
+            title="Generated Report"
+            sandbox="allow-same-origin"
+          />
+        </div>
+      </CardContent>
+    </Card>
+  );
+};

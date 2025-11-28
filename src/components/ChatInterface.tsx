@@ -17,9 +17,10 @@ interface Message {
 
 interface ChatInterfaceProps {
   documents: UploadedDocument[];
+  onReportGenerated: (html: string, data: any) => void;
 }
 
-export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
+export const ChatInterface = ({ documents, onReportGenerated }: ChatInterfaceProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -187,6 +188,7 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
           question: input,
           files: allFiles,
           customPrompt: customPrompt,
+          generateReport: true,
         },
       });
 
@@ -199,6 +201,11 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
+
+      // If report HTML is generated, pass it up
+      if (data.reportHtml) {
+        onReportGenerated(data.reportHtml, data.reportData);
+      }
     } catch (error) {
       console.error("Question error:", error);
       toast({
