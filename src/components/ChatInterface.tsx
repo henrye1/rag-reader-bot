@@ -41,17 +41,19 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    const pdfFiles = files.filter((file) => file.type === "application/pdf");
+    const validFiles = files.filter((file) => 
+      file.type === "application/pdf" || file.type === "application/json"
+    );
 
-    if (pdfFiles.length !== files.length) {
+    if (validFiles.length !== files.length) {
       toast({
         title: "Invalid file type",
-        description: "Only PDF files are supported",
+        description: "Only PDF and JSON files are supported",
         variant: "destructive",
       });
     }
 
-    setAttachedFiles((prev) => [...prev, ...pdfFiles]);
+    setAttachedFiles((prev) => [...prev, ...validFiles]);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -141,7 +143,7 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
 
     try {
       // Upload attached files first if any
-      let attachedFileIds: string[] = [];
+      let attachedDocs: { fileId: string; content?: string; isJson?: boolean }[] = [];
       if (attachedFiles.length > 0) {
         setIsUploading(true);
         for (const file of attachedFiles) {
@@ -156,22 +158,30 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
           );
 
           if (uploadError) throw uploadError;
-          attachedFileIds.push(uploadData.fileId);
+          attachedDocs.push({
+            fileId: uploadData.fileId,
+            content: uploadData.content,
+            isJson: uploadData.fileId?.startsWith('json-'),
+          });
         }
         setIsUploading(false);
         setAttachedFiles([]);
       }
 
-      // Combine all file IDs
-      const allFileIds = [
-        ...documents.map((doc) => doc.id),
-        ...attachedFileIds,
+      // Combine all file data
+      const allFiles = [
+        ...documents.map((doc) => ({ 
+          fileId: doc.id, 
+          content: doc.content,
+          isJson: doc.isJson 
+        })),
+        ...attachedDocs,
       ];
 
       const { data, error } = await supabase.functions.invoke("ask-question", {
         body: {
           question: input,
-          fileIds: allFileIds,
+          files: allFiles,
           customPrompt: customPrompt,
         },
       });
@@ -357,7 +367,7 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".pdf"
+              accept=".pdf,.json,application/pdf,application/json"
               multiple
               onChange={handleFileSelect}
               className="hidden"
@@ -366,7 +376,7 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
               onClick={() => fileInputRef.current?.click()}
               variant="outline"
               size="icon"
-              title="Attach PDF files"
+              title="Attach PDF or JSON files"
               disabled={isLoading || isUploading || isUploadingPrompt}
             >
               <Paperclip className="h-4 w-4" />
