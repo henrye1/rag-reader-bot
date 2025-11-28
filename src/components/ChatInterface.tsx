@@ -65,10 +65,11 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.type !== "text/plain") {
+    const validTypes = ["text/plain", "application/pdf"];
+    if (!validTypes.includes(file.type)) {
       toast({
         title: "Invalid file type",
-        description: "Please upload a plain text file (.txt)",
+        description: "Please upload a text file (.txt) or PDF file (.pdf)",
         variant: "destructive",
       });
       return;
@@ -336,7 +337,7 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
             <input
               ref={promptInputRef}
               type="file"
-              accept=".txt,text/plain"
+              accept=".txt,.pdf,text/plain,application/pdf"
               onChange={handlePromptUpload}
               className="hidden"
             />
@@ -344,7 +345,7 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
               onClick={() => promptInputRef.current?.click()}
               variant="outline"
               size="icon"
-              title="Upload custom prompt (text file)"
+              title="Upload custom prompt (text or PDF file)"
               disabled={isLoading || isUploading || isUploadingPrompt}
             >
               {isUploadingPrompt ? (
