@@ -169,7 +169,7 @@ export const FileUpload = ({ onFileSelect, selectedFile, onUploadComplete, onCle
             </div>
             <input
               type="file"
-              accept=".pdf,.json,application/pdf,application/json"
+              accept=".pdf,.json"
               onChange={handleFileInput}
               className="hidden"
               id="file-upload"
