@@ -6,7 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import type { UploadedDocument } from "@/pages/Index";
 
-const MAX_FILE_SIZE_MB = 20;
+const MAX_FILE_SIZE_MB = 40;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 interface FileUploadProps {
