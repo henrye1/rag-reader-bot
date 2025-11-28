@@ -37,9 +37,13 @@ export const FileUpload = ({ onFileSelect, selectedFile, onUploadComplete, onCle
       setIsDragging(false);
 
       const files = Array.from(e.dataTransfer.files);
-      const validFile = files.find((file) => 
-        file.type === "application/pdf" || file.type === "application/json"
-      );
+      const validFile = files.find((file) => {
+        const type = file.type;
+        const name = file.name.toLowerCase();
+        const isPdf = type === "application/pdf" || name.endsWith(".pdf");
+        const isJson = type === "application/json" || name.endsWith(".json");
+        return isPdf || isJson;
+      });
 
       if (validFile) {
         if (validFile.size > MAX_FILE_SIZE_BYTES) {
@@ -66,7 +70,12 @@ export const FileUpload = ({ onFileSelect, selectedFile, onUploadComplete, onCle
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (file) {
-        if (file.type === "application/pdf" || file.type === "application/json") {
+        const type = file.type;
+        const name = file.name.toLowerCase();
+        const isPdf = type === "application/pdf" || name.endsWith(".pdf");
+        const isJson = type === "application/json" || name.endsWith(".json");
+
+        if (isPdf || isJson) {
           if (file.size > MAX_FILE_SIZE_BYTES) {
             toast({
               title: "File too large",

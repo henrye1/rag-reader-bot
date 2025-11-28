@@ -41,9 +41,13 @@ export const ChatInterface = ({ documents }: ChatInterfaceProps) => {
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    const validFiles = files.filter((file) => 
-      file.type === "application/pdf" || file.type === "application/json"
-    );
+    const validFiles = files.filter((file) => {
+      const type = file.type;
+      const name = file.name.toLowerCase();
+      const isPdf = type === "application/pdf" || name.endsWith(".pdf");
+      const isJson = type === "application/json" || name.endsWith(".json");
+      return isPdf || isJson;
+    });
 
     if (validFiles.length !== files.length) {
       toast({
