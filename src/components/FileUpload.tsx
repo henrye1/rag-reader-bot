@@ -107,6 +107,8 @@ export const FileUpload = ({ onFileSelect, selectedFile, onUploadComplete, onCle
         id: data.fileId,
         name: selectedFile.name,
         uploadedAt: new Date(),
+        content: data.content,
+        isJson: data.fileId?.startsWith('json-'),
       };
 
       onUploadComplete(newDoc);

@@ -8,6 +8,8 @@ export interface UploadedDocument {
   id: string;
   name: string;
   uploadedAt: Date;
+  content?: string; // For JSON files
+  isJson?: boolean;
 }
 
 const Index = () => {

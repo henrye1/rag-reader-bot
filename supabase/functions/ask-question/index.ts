@@ -16,25 +16,33 @@ serve(async (req) => {
       throw new Error("GOOGLE_API_KEY is not configured");
     }
 
-    const { question, fileIds, customPrompt } = await req.json();
+    const { question, files, customPrompt } = await req.json();
 
-    if (!question || !fileIds || fileIds.length === 0) {
-      throw new Error("Question and fileIds are required");
+    if (!question || !files || files.length === 0) {
+      throw new Error("Question and files are required");
     }
 
-    console.log(`Asking question about ${fileIds.length} file(s): ${question}`);
+    console.log(`Asking question about ${files.length} file(s): ${question}`);
 
     // Build the request with file references and question
     const parts = [];
 
-    // Add file references
-    for (const fileId of fileIds) {
-      parts.push({
-        file_data: {
-          file_uri: `https://generativelanguage.googleapis.com/v1beta/${fileId}`,
-          mime_type: "application/pdf",
-        },
-      });
+    // Add file references (PDFs) or content (JSON)
+    for (const file of files) {
+      if (file.isJson && file.content) {
+        // For JSON files, add the content as text
+        parts.push({
+          text: `JSON Document (${file.fileId}):\n${file.content}`,
+        });
+      } else {
+        // For PDF files, use file_data reference
+        parts.push({
+          file_data: {
+            file_uri: `https://generativelanguage.googleapis.com/v1beta/${file.fileId}`,
+            mime_type: "application/pdf",
+          },
+        });
+      }
     }
 
     // Use custom prompt if provided, otherwise use default enhanced prompt
