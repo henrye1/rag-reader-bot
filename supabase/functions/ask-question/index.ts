@@ -137,6 +137,9 @@ Generate a structured report following this format:
                 parts: parts,
               },
             ],
+            generationConfig: {
+              temperature: 0.3,
+            },
           }),
           signal: controller.signal,
         },
@@ -247,6 +250,9 @@ Respond with ONLY the JSON object, no additional text.`;
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: contextPrompt }] }],
+          generationConfig: {
+            temperature: 0.3,
+          },
         }),
       }
     );
