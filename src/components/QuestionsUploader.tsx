@@ -81,9 +81,9 @@ export const QuestionsUploader = ({ questionsTemplate, questionsFileName, onQues
   return (
     <Card className="shadow-soft">
       <CardHeader>
-        <CardTitle>Step 3: Upload Questions or Ask Directly</CardTitle>
+        <CardTitle>Step 3: Upload Questions (Optional)</CardTitle>
         <CardDescription>
-          Upload a batch of questions (PDF or JSON) or ask questions directly in the chat
+          Upload a batch of questions (PDF or JSON) or simply ask questions directly in the chat
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
