@@ -4,6 +4,7 @@ import { ChatInterface } from "@/components/ChatInterface";
 import { DocumentList } from "@/components/DocumentList";
 import { ReportViewer } from "@/components/ReportViewer";
 import { FileText } from "lucide-react";
+import { useLocalStorage } from "@/hooks/use-local-storage";
 
 export interface UploadedDocument {
   id: string;
@@ -14,10 +15,10 @@ export interface UploadedDocument {
 }
 
 const Index = () => {
-  const [documents, setDocuments] = useState<UploadedDocument[]>([]);
+  const [documents, setDocuments] = useLocalStorage<UploadedDocument[]>("documents", []);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [generatedReport, setGeneratedReport] = useState<string | null>(null);
-  const [reportData, setReportData] = useState<any>(null);
+  const [generatedReport, setGeneratedReport] = useLocalStorage<string | null>("generatedReport", null);
+  const [reportData, setReportData] = useLocalStorage<any>("reportData", null);
 
   const handleFileSelect = (files: File[]) => {
     setSelectedFiles((prev) => [...prev, ...files]);
