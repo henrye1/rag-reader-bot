@@ -21,10 +21,11 @@ interface ChatInterfaceProps {
   onReportGenerated: (html: string, data: any) => void;
   customPrompt: string | null;
   questionsTemplate: any[] | null;
+  resetTrigger?: number;
   onClearChat?: () => void;
 }
 
-export const ChatInterface = ({ documents, onReportGenerated, customPrompt, questionsTemplate, onClearChat }: ChatInterfaceProps) => {
+export const ChatInterface = ({ documents, onReportGenerated, customPrompt, questionsTemplate, resetTrigger, onClearChat }: ChatInterfaceProps) => {
   const [messages, setMessages] = useLocalStorage<Message[]>("chatMessages", []);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -33,6 +34,15 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+
+  // Watch for reset trigger from parent
+  useEffect(() => {
+    if (resetTrigger && resetTrigger > 0) {
+      setMessages([]);
+      setAttachedFiles([]);
+      setInput("");
+    }
+  }, [resetTrigger]);
 
   useEffect(() => {
     if (scrollRef.current) {
