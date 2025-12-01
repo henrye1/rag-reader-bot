@@ -21,9 +21,10 @@ interface ChatInterfaceProps {
   onReportGenerated: (html: string, data: any) => void;
   customPrompt: string | null;
   questionsTemplate: any[] | null;
+  onClearChat?: () => void;
 }
 
-export const ChatInterface = ({ documents, onReportGenerated, customPrompt, questionsTemplate }: ChatInterfaceProps) => {
+export const ChatInterface = ({ documents, onReportGenerated, customPrompt, questionsTemplate, onClearChat }: ChatInterfaceProps) => {
   const [messages, setMessages] = useLocalStorage<Message[]>("chatMessages", []);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -172,6 +173,7 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
 
   const handleClearChat = () => {
     setMessages([]);
+    onClearChat?.();
     toast({
       title: "Chat cleared",
       description: "Conversation history has been reset",
