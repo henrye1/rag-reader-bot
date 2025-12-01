@@ -6,7 +6,8 @@ import { ReportViewer } from "@/components/ReportViewer";
 import { WorkflowSteps } from "@/components/WorkflowSteps";
 import { PromptUploader } from "@/components/PromptUploader";
 import { QuestionsUploader } from "@/components/QuestionsUploader";
-import { FileText } from "lucide-react";
+import { FileText, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useToast } from "@/hooks/use-toast";
 
@@ -53,6 +54,21 @@ const Index = () => {
   const handleClearAllDocuments = () => {
     setDocuments([]);
     setSelectedFiles([]);
+  };
+
+  const handleResetAll = () => {
+    setDocuments([]);
+    setSelectedFiles([]);
+    setCustomPrompt(null);
+    setPromptFileName(null);
+    setQuestionsTemplate(null);
+    setQuestionsFileName(null);
+    setGeneratedReport(null);
+    setReportData(null);
+    toast({
+      title: "Reset Complete",
+      description: "All data has been cleared. You can start fresh!",
+    });
   };
 
   const handleReportGenerated = (html: string, data: any) => {
@@ -114,14 +130,24 @@ const Index = () => {
       {/* Header */}
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-gradient-primary flex items-center justify-center shadow-elegant">
-              <FileText className="h-5 w-5 text-white" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-gradient-primary flex items-center justify-center shadow-elegant">
+                <FileText className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-foreground">Document Q&A System</h1>
+                <p className="text-sm text-muted-foreground">Structured workflow for document analysis</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl font-bold text-foreground">Document Q&A System</h1>
-              <p className="text-sm text-muted-foreground">Structured workflow for document analysis</p>
-            </div>
+            <Button
+              onClick={handleResetAll}
+              variant="outline"
+              className="gap-2"
+            >
+              <Trash2 className="h-4 w-4" />
+              Reset All
+            </Button>
           </div>
         </div>
       </header>
@@ -173,12 +199,16 @@ const Index = () => {
                 onReportGenerated={handleReportGenerated}
                 customPrompt={customPrompt}
                 questionsTemplate={questionsTemplate}
+                onClearChat={() => {
+                  setGeneratedReport(null);
+                  setReportData(null);
+                }}
               />
             </div>
           </div>
 
-          {/* Report Viewer */}
-          {generatedReport && (
+          {/* Report Viewer - Only show when report is generated */}
+          {generatedReport && reportData && (
             <ReportViewer 
               reportHtml={generatedReport}
               reportData={reportData}
