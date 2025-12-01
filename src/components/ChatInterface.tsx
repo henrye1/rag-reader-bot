@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import type { UploadedDocument } from "@/pages/Index";
 import { Badge } from "@/components/ui/badge";
+import { useLocalStorage } from "@/hooks/use-local-storage";
 
 interface Message {
   id: string;
@@ -21,13 +22,13 @@ interface ChatInterfaceProps {
 }
 
 export const ChatInterface = ({ documents, onReportGenerated }: ChatInterfaceProps) => {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useLocalStorage<Message[]>("chatMessages", []);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
-  const [customPrompt, setCustomPrompt] = useState<string | null>(null);
-  const [promptFileName, setPromptFileName] = useState<string | null>(null);
+  const [customPrompt, setCustomPrompt] = useLocalStorage<string | null>("customPrompt", null);
+  const [promptFileName, setPromptFileName] = useLocalStorage<string | null>("promptFileName", null);
   const [isUploadingPrompt, setIsUploadingPrompt] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
