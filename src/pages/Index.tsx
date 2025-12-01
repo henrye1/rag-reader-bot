@@ -122,8 +122,8 @@ const Index = () => {
     },
     {
       id: 3,
-      title: "Upload Questions (Optional)",
-      description: "Batch upload questions or ask directly in chat",
+      title: "Ask Questions",
+      description: "Ask in the chat or optionally batch upload",
       completed: !!questionsFileName || false,
     },
   ];

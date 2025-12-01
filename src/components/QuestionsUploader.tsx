@@ -81,9 +81,9 @@ export const QuestionsUploader = ({ questionsTemplate, questionsFileName, onQues
   return (
     <Card className="shadow-soft">
       <CardHeader>
-        <CardTitle>Step 3: Upload Questions (Optional)</CardTitle>
+        <CardTitle>Step 3: Ask Questions</CardTitle>
         <CardDescription>
-          Upload a batch of questions (PDF or JSON) or simply ask questions directly in the chat
+          Ask questions directly in the chat below, or optionally upload a batch of questions (PDF or JSON) for processing
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -145,7 +145,7 @@ export const QuestionsUploader = ({ questionsTemplate, questionsFileName, onQues
               </div>
             </div>
             <div className="text-center text-sm text-muted-foreground">
-              <p>Or skip this step and ask questions directly in the chat below</p>
+              <p>Primary method: Ask questions in the chat below</p>
             </div>
           </div>
         )}
