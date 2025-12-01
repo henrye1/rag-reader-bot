@@ -55,7 +55,7 @@ export const DocumentList = ({ documents, onRemove, onClearAll }: DocumentListPr
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{doc.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {doc.uploadedAt.toLocaleDateString()}
+                    {new Date(doc.uploadedAt).toLocaleDateString()}
                   </p>
                 </div>
                 <Button
