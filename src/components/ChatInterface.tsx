@@ -30,9 +30,13 @@ export const ChatInterface = ({ documents, onReportGenerated }: ChatInterfacePro
   const [customPrompt, setCustomPrompt] = useLocalStorage<string | null>("customPrompt", null);
   const [promptFileName, setPromptFileName] = useLocalStorage<string | null>("promptFileName", null);
   const [isUploadingPrompt, setIsUploadingPrompt] = useState(false);
+  const [questionsTemplate, setQuestionsTemplate] = useLocalStorage<any[] | null>("questionsTemplate", null);
+  const [questionsFileName, setQuestionsFileName] = useLocalStorage<string | null>("questionsFileName", null);
+  const [isUploadingQuestions, setIsUploadingQuestions] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const promptInputRef = useRef<HTMLInputElement>(null);
+  const questionsInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -125,6 +129,81 @@ export const ChatInterface = ({ documents, onReportGenerated }: ChatInterfacePro
     });
   };
 
+  const handleQuestionsUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const validTypes = ["application/json", "application/pdf"];
+    const isValidType = validTypes.includes(file.type) || file.name.endsWith('.json') || file.name.endsWith('.pdf');
+    
+    if (!isValidType) {
+      toast({
+        title: "Invalid file type",
+        description: "Please upload a JSON or PDF file",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUploadingQuestions(true);
+    try {
+      if (file.type === "application/json" || file.name.endsWith('.json')) {
+        // Parse JSON directly
+        const text = await file.text();
+        const questions = JSON.parse(text);
+        
+        // Validate it's an array
+        if (!Array.isArray(questions)) {
+          throw new Error("JSON must contain an array of questions");
+        }
+        
+        setQuestionsTemplate(questions);
+        setQuestionsFileName(file.name);
+      } else {
+        // Parse PDF using edge function
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const { data, error } = await supabase.functions.invoke("parse-prompt-document", {
+          body: formData,
+        });
+
+        if (error) throw error;
+
+        // Try to extract questions from the text
+        const lines = data.promptText.split('\n').filter((l: string) => l.trim());
+        setQuestionsTemplate(lines.map((q: string, i: number) => ({ id: i + 1, question: q })));
+        setQuestionsFileName(file.name);
+      }
+      
+      toast({
+        title: "Success",
+        description: "Questions template loaded successfully!",
+      });
+    } catch (error) {
+      console.error("Questions upload error:", error);
+      toast({
+        title: "Upload failed",
+        description: error instanceof Error ? error.message : "Failed to upload questions template",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploadingQuestions(false);
+      if (questionsInputRef.current) {
+        questionsInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleRemoveQuestions = () => {
+    setQuestionsTemplate(null);
+    setQuestionsFileName(null);
+    toast({
+      title: "Questions template removed",
+      description: "You can now ask questions freely",
+    });
+  };
+
   const handleSend = async () => {
     if (!input.trim() || isLoading || isUploading) return;
 
@@ -189,6 +268,7 @@ export const ChatInterface = ({ documents, onReportGenerated }: ChatInterfacePro
           question: input,
           files: allFiles,
           customPrompt: customPrompt,
+          questionsTemplate: questionsTemplate,
           generateReport: true,
         },
       });
@@ -321,6 +401,23 @@ export const ChatInterface = ({ documents, onReportGenerated }: ChatInterfacePro
               </Badge>
             </div>
           )}
+
+          {/* Questions Template Display */}
+          {questionsFileName && (
+            <div className="mb-3 flex items-center gap-2">
+              <Badge variant="outline" className="flex items-center gap-2">
+                <FileText className="h-3 w-3" />
+                <span className="text-xs">Questions: {questionsFileName} ({questionsTemplate?.length || 0} questions)</span>
+                <button
+                  onClick={handleRemoveQuestions}
+                  className="ml-1 hover:text-destructive transition-colors"
+                  disabled={isLoading || isUploading}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            </div>
+          )}
           
           {/* Attached Files Display */}
           {attachedFiles.length > 0 && (
@@ -368,12 +465,32 @@ export const ChatInterface = ({ documents, onReportGenerated }: ChatInterfacePro
               variant="outline"
               size="icon"
               title="Upload custom prompt (text or PDF file)"
-              disabled={isLoading || isUploading || isUploadingPrompt}
+              disabled={isLoading || isUploading || isUploadingPrompt || isUploadingQuestions}
             >
               {isUploadingPrompt ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Upload className="h-4 w-4" />
+              )}
+            </Button>
+            <input
+              ref={questionsInputRef}
+              type="file"
+              accept=".json,.pdf,application/json,application/pdf"
+              onChange={handleQuestionsUpload}
+              className="hidden"
+            />
+            <Button
+              onClick={() => questionsInputRef.current?.click()}
+              variant="outline"
+              size="icon"
+              title="Upload questions template (JSON or PDF file)"
+              disabled={isLoading || isUploading || isUploadingPrompt || isUploadingQuestions}
+            >
+              {isUploadingQuestions ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FileText className="h-4 w-4" />
               )}
             </Button>
             <input
@@ -389,7 +506,7 @@ export const ChatInterface = ({ documents, onReportGenerated }: ChatInterfacePro
               variant="outline"
               size="icon"
               title="Attach PDF or JSON files"
-              disabled={isLoading || isUploading || isUploadingPrompt}
+              disabled={isLoading || isUploading || isUploadingPrompt || isUploadingQuestions}
             >
               <Paperclip className="h-4 w-4" />
             </Button>
