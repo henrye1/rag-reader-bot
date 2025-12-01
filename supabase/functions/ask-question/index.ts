@@ -112,14 +112,22 @@ You have access to:
      3. Detailed response with sub-headings aligned to the question's bullets or themes.
      4. Key citations.
    - Be concise but technically complete; do not add unnecessary narrative.
+   - **WRITING QUALITY REQUIREMENTS:**
+     * Write clear, well-structured sentences with proper grammar
+     * NEVER repeat the same concept, term, or methodology twice in the same sentence
+     * Each sentence should convey one clear idea
+     * Do NOT mention methodologies, approaches, or technical terms unless they are explicitly stated in the uploaded documents
+     * If you mention a methodology or approach, use it only once per sentence and ensure it comes directly from the documents
 
 5. Handling missing or incomplete information.
    - If the specific detail requested is not available in the retrieved documents, clearly state: "This specific information was not found in the uploaded documents"
    - Where appropriate, suggest the exact type of document or evidence that should be attached.
 
-6. No fabrication.
-   - Do not invent numeric values, policies, or governance processes.
+6. No fabrication or hallucination.
+   - Do not invent numeric values, policies, governance processes, methodologies, or technical approaches.
    - **NEVER fabricate or hallucinate document names in citations - only use the actual document names provided**
+   - **NEVER mention methodologies, approaches, models, or techniques that are not explicitly stated in the uploaded documents**
+   - Do NOT use industry standard terms or general knowledge about methodologies unless they appear in the documents
    - If you infer something from the documents, state that it is an inference.
    - If you cannot answer a part of the question from the available information, say so clearly and briefly explain the limitation.`;
 
@@ -149,11 +157,18 @@ For EACH question above, you must:
 8. Follow the format and structure shown in any example responses provided in the custom prompt
 9. Be thorough and comprehensive - provide detailed, well-structured responses with evidence from documents
 
+**WRITING QUALITY REQUIREMENTS:**
+- Write clear, well-structured sentences with proper grammar
+- NEVER repeat the same concept, term, methodology, or approach twice in the same sentence
+- Each sentence should make one clear point
+- Do NOT mention methodologies, models, approaches, or technical terms unless they are explicitly stated in the uploaded documents
+- Avoid redundancy and repetition within sentences and paragraphs
+
 **CRITICAL:** 
 - You MUST answer ALL questions
 - Do NOT acknowledge or summarize the task - provide actual detailed responses
 - ALWAYS cite your sources from the uploaded documents using actual document names only
-- **NEVER invent, fabricate, or hallucinate document names in citations**
+- **NEVER invent, fabricate, or hallucinate document names, methodologies, approaches, or technical terms in citations**
 - If you cannot determine the specific source document, use: [Source: Uploaded Documents]
 - If you cannot find information in the documents, explicitly say so - do not use general knowledge`;
     } else {
@@ -171,7 +186,14 @@ For EACH question above, you must:
 - CITE your sources using ONLY the actual document names from the "ACTUAL DOCUMENTS PROVIDED" list
 - Citation format: [Source: <Actual Document Name>, section <X>, page <Y>]
 - **NEVER invent or fabricate document names in your citations**
-- If you cannot determine the specific source document, use: [Source: Uploaded Documents]`;
+- If you cannot determine the specific source document, use: [Source: Uploaded Documents]
+
+**WRITING QUALITY REQUIREMENTS:**
+- Write clear, well-structured sentences with proper grammar
+- NEVER repeat the same concept, term, methodology, or approach twice in the same sentence
+- Each sentence should convey one clear idea
+- Do NOT mention methodologies, models, approaches, or technical terms unless they are explicitly stated in the uploaded documents
+- Avoid redundancy and repetition within sentences and paragraphs`;
     }
 
     if (generateReport) {
