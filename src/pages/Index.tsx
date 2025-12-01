@@ -28,6 +28,7 @@ const Index = () => {
   const [promptFileName, setPromptFileName] = useLocalStorage<string | null>("promptFileName", null);
   const [questionsTemplate, setQuestionsTemplate] = useLocalStorage<any[] | null>("questionsTemplate", null);
   const [questionsFileName, setQuestionsFileName] = useLocalStorage<string | null>("questionsFileName", null);
+  const [resetTrigger, setResetTrigger] = useState(0);
   const { toast } = useToast();
 
   const handleFileSelect = (files: File[]) => {
@@ -65,8 +66,8 @@ const Index = () => {
     setQuestionsFileName(null);
     setGeneratedReport(null);
     setReportData(null);
-    // Clear chat messages from localStorage
-    localStorage.removeItem("chatMessages");
+    // Trigger chat reset by incrementing the trigger
+    setResetTrigger(prev => prev + 1);
     toast({
       title: "Reset Complete",
       description: "All data has been cleared. You can start fresh!",
@@ -201,6 +202,7 @@ const Index = () => {
                 onReportGenerated={handleReportGenerated}
                 customPrompt={customPrompt}
                 questionsTemplate={questionsTemplate}
+                resetTrigger={resetTrigger}
                 onClearChat={() => {
                   setGeneratedReport(null);
                   setReportData(null);
