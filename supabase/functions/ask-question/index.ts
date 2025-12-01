@@ -46,70 +46,54 @@ serve(async (req) => {
       }
     }
 
-    // Use custom prompt if provided, otherwise use default enhanced prompt
-    let defaultPrompt = `You are a professional document analyst providing comprehensive and well-structured answers.
-
-Question: ${question}
-
-You are an ICAAP and stress-testing specialist assisting with a gap assessment of Discovery Bank's ICAAP and stress testing framework.
-
-You are given excerpts from the ICAAP / Stress Testing / Capital Management report as context (see below). Focus particularly on:
-- The stress testing and capital management sections, and
-- The assessment/checklist tables near the end (RAG "Red/Amber/Green" tables, "Criteria / Discovery / Rating" tables, and related narrative).
-
-YOUR TASKS
-1. For each of the following four ICAAP stress-testing objectives:
-   - Risk mitigation and contingency planning
-   - Strategic planning and budgeting
-   - Capital planning and management
-   - Stakeholder communication
-
-   do ALL of the following:
-   a) Describe how the current ICAAP framework addresses this objective, based ONLY on the text in the context.
-   b) Identify strengths and weaknesses, referencing any assessment/checklist content (e.g. RAG tables, "Criteria / Discovery / Rating").
-   c) Provide an overall RAG rating (Green / Amber / Red) for this objective, with clear justification.
-   d) List the key gaps or issues relating to this objective.
-   e) Propose specific, actionable recommendations to close those gaps and move towards best practice.
-
-INSTRUCTIONS FOR YOUR RESPONSE (MUST-FOLLOW)
-- Use ONLY the information in the provided ICAAP context. Do not invent or assume facts.
-- Provide a COMPLETE, DETAILED, and THOROUGH answer based on ALL relevant information in the context.
-- Structure your response with clear headings and subheadings.
-- Include specific quantitative and qualitative details wherever available.
-- When you see any RAG / rating / scoring system, EXPLAIN the full scale and what each rating means.
-- Explain the CONTEXT.`;
-
-    // If questions template is provided, modify the prompt
+    // Build the prompt based on what's provided
+    let finalPrompt = '';
+    
+    // If questions template is provided, use it to structure the response
     if (questionsTemplate && Array.isArray(questionsTemplate) && questionsTemplate.length > 0) {
-      defaultPrompt = customPrompt || `You are a domain-specific expert AI assistant. Analyze the provided documents carefully and answer questions with precision and accuracy based strictly on the document content.`;
+      // Start with custom prompt as guardrails, or use default expert prompt
+      finalPrompt = customPrompt || `You are a domain-specific expert AI assistant with deep expertise in the subject matter. Analyze the provided documents carefully and answer questions with precision and accuracy based strictly on the document content.`;
       
-      defaultPrompt += `\n\nIMPORTANT: A questions template has been provided. You must address each question from the template systematically in your response. Here are the questions to answer:\n\n`;
+      finalPrompt += `\n\n## USER QUESTION/INSTRUCTION:\n${question}\n\n## QUESTIONS TO ANSWER:\nA questions template has been provided. You MUST address EACH question from the template systematically and comprehensively in your response. Here are the questions:\n\n`;
       
       questionsTemplate.forEach((q: any, index: number) => {
         const questionText = typeof q === 'string' ? q : (q.question || q.text || JSON.stringify(q));
-        defaultPrompt += `${index + 1}. ${questionText}\n`;
+        finalPrompt += `Question ${index + 1}: ${questionText}\n\n`;
       });
       
-      defaultPrompt += `\n\nFor each question:
-- Reference specific sections and details from the uploaded documents
-- If information is not available in the documents, clearly state this
-- Provide detailed, well-structured responses
-- Use the context from the custom prompt (if provided) as guardrails for your analysis\n`;
+      finalPrompt += `\n## RESPONSE INSTRUCTIONS:
+For EACH question above, you must:
+1. Provide a COMPLETE, DETAILED response using ONLY information from the uploaded documents
+2. Structure your answer with clear headings (use "Response to Question X.X" format as shown in the examples)
+3. Reference specific sections, page numbers, and details from the documents
+4. Include relevant quotes and data points
+5. If information is not available in the documents, clearly state "Information not available in provided documents"
+6. Follow the format and structure shown in any example responses provided in the custom prompt
+7. Be thorough and comprehensive - do not provide brief or summary answers
+
+CRITICAL: You must answer ALL questions. Do not acknowledge or summarize - provide actual detailed responses to each question.`;
+    } else {
+      // No questions template - use standard prompt with user's question
+      finalPrompt = customPrompt || `You are a professional document analyst providing comprehensive and well-structured answers.
+
+Question: ${question}
+
+INSTRUCTIONS FOR YOUR RESPONSE:
+- Use ONLY the information in the provided documents
+- Provide a COMPLETE, DETAILED, and THOROUGH answer based on ALL relevant information
+- Structure your response with clear headings and subheadings
+- Include specific quantitative and qualitative details wherever available`;
     }
 
     if (generateReport) {
-      defaultPrompt += `
-
-REPORT GENERATION:
-Generate a structured HTML report following this exact format:
+      finalPrompt += `\n\n## REPORT GENERATION:
+Generate a structured report following this format:
 - Executive Summary section with critical findings
 - Risk Assessment with color-coded indicators
-- Detailed findings with tables
+- Detailed findings with tables and structured sections
 - Recommendations section
-- Use professional styling with risk badges (CRITICAL, HIGH, MEDIUM, LOW)`;
+- Use professional styling with appropriate emphasis on key findings`;
     }
-
-    const finalPrompt = customPrompt || defaultPrompt;
 
     parts.push({
       text: finalPrompt,
