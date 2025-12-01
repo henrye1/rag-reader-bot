@@ -24,6 +24,7 @@ serve(async (req) => {
 
     console.log(`Asking question about ${files.length} file(s): ${question}`);
     console.log(`Generate report: ${generateReport}`);
+    console.log(`Files being sent:`, files.map((f: any) => ({ fileId: f.fileId, isJson: f.isJson })));
 
     // Build the request with file references and question
     const parts = [];
@@ -49,40 +50,58 @@ serve(async (req) => {
     // Build the prompt based on what's provided
     let finalPrompt = '';
     
+    // Add explicit instruction to read the uploaded files FIRST
+    const documentsInstruction = `\n\n## UPLOADED DOCUMENTS TO ANALYZE:\nYou have been provided with ${files.length} document(s) that contain ALL the information you need to answer the questions below. These documents are attached to this request and you MUST read them thoroughly before responding.\n\n**CRITICAL REQUIREMENTS:**
+1. READ ALL uploaded documents completely and carefully before answering
+2. SEARCH the documents for relevant information for each question
+3. CITE specific sections, page numbers, tables, and figures from the documents
+4. Quote exact text from the documents where relevant
+5. If specific information is not found after thorough search, state: "This information was not found in the uploaded documents after thorough review"
+6. DO NOT use general knowledge - base your answers ONLY on what is explicitly stated in the uploaded documents\n\n`;
+    
     // If questions template is provided, use it to structure the response
     if (questionsTemplate && Array.isArray(questionsTemplate) && questionsTemplate.length > 0) {
       // Start with custom prompt as guardrails, or use default expert prompt
-      finalPrompt = customPrompt || `You are a domain-specific expert AI assistant with deep expertise in the subject matter. Analyze the provided documents carefully and answer questions with precision and accuracy based strictly on the document content.`;
+      finalPrompt = customPrompt || `You are a domain-specific expert AI assistant with deep expertise in the subject matter. You analyze documents meticulously and provide precise answers based strictly on the document content.`;
       
-      finalPrompt += `\n\n## USER QUESTION/INSTRUCTION:\n${question}\n\n## QUESTIONS TO ANSWER:\nA questions template has been provided. You MUST address EACH question from the template systematically and comprehensively in your response. Here are the questions:\n\n`;
+      finalPrompt += documentsInstruction;
+      
+      finalPrompt += `## USER QUESTION/INSTRUCTION:\n${question}\n\n## QUESTIONS TO ANSWER:\nA questions template has been provided. You MUST address EACH question from the template systematically and comprehensively. Here are the questions:\n\n`;
       
       questionsTemplate.forEach((q: any, index: number) => {
         const questionText = typeof q === 'string' ? q : (q.question || q.text || JSON.stringify(q));
-        finalPrompt += `Question ${index + 1}: ${questionText}\n\n`;
+        finalPrompt += `Question ${index + 1} [${q.question_id || index + 1}]: ${questionText}\n\n`;
       });
       
       finalPrompt += `\n## RESPONSE INSTRUCTIONS:
 For EACH question above, you must:
-1. Provide a COMPLETE, DETAILED response using ONLY information from the uploaded documents
-2. Structure your answer with clear headings (use "Response to Question X.X" format as shown in the examples)
-3. Reference specific sections, page numbers, and details from the documents
-4. Include relevant quotes and data points
-5. If information is not available in the documents, clearly state "Information not available in provided documents"
-6. Follow the format and structure shown in any example responses provided in the custom prompt
-7. Be thorough and comprehensive - do not provide brief or summary answers
+1. First, SEARCH the uploaded documents for relevant information about this question
+2. Provide a COMPLETE, DETAILED response using ONLY information found in the uploaded documents
+3. Structure your answer with clear headings (format: "Response to Question X.X – <Title>")
+4. CITE specific sources with format: [Source: <Document Name>, section <X.X>, page <Y>]
+5. Include relevant quotes, data points, tables, and figures from the documents
+6. If information is not found after thorough document search, state: "This specific information was not found in the uploaded documents"
+7. Follow the format and structure shown in any example responses provided in the custom prompt
+8. Be thorough and comprehensive - provide detailed, well-structured responses with evidence from documents
 
-CRITICAL: You must answer ALL questions. Do not acknowledge or summarize - provide actual detailed responses to each question.`;
+**CRITICAL:** 
+- You MUST answer ALL questions
+- Do NOT acknowledge or summarize the task - provide actual detailed responses
+- ALWAYS cite your sources from the uploaded documents
+- If you cannot find information in the documents, explicitly say so - do not use general knowledge`;
     } else {
       // No questions template - use standard prompt with user's question
-      finalPrompt = customPrompt || `You are a professional document analyst providing comprehensive and well-structured answers.
-
-Question: ${question}
-
-INSTRUCTIONS FOR YOUR RESPONSE:
-- Use ONLY the information in the provided documents
-- Provide a COMPLETE, DETAILED, and THOROUGH answer based on ALL relevant information
+      finalPrompt = customPrompt || `You are a professional document analyst providing comprehensive and well-structured answers.`;
+      
+      finalPrompt += documentsInstruction;
+      
+      finalPrompt += `## USER QUESTION:\n${question}\n\nINSTRUCTIONS FOR YOUR RESPONSE:
+- READ the uploaded documents thoroughly first
+- Use ONLY the information found in the provided documents
+- Provide a COMPLETE, DETAILED, and THOROUGH answer based on ALL relevant information from the documents
 - Structure your response with clear headings and subheadings
-- Include specific quantitative and qualitative details wherever available`;
+- Include specific quantitative and qualitative details wherever available
+- CITE your sources with document names, sections, and page numbers`;
     }
 
     if (generateReport) {
@@ -145,6 +164,14 @@ Generate a structured report following this format:
 
     const data = await response.json();
     console.log("Gemini response received");
+    
+    // Log if there are any issues with the response
+    if (!data.candidates || data.candidates.length === 0) {
+      console.error("No candidates in Gemini response:", JSON.stringify(data));
+    }
+    if (data.promptFeedback) {
+      console.log("Gemini prompt feedback:", JSON.stringify(data.promptFeedback));
+    }
 
     const answer = data.candidates?.[0]?.content?.parts?.[0]?.text || "No answer generated";
 
