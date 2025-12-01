@@ -16,7 +16,7 @@ serve(async (req) => {
       throw new Error("GOOGLE_API_KEY is not configured");
     }
 
-    const { question, files, customPrompt, generateReport } = await req.json();
+    const { question, files, customPrompt, questionsTemplate, generateReport } = await req.json();
 
     if (!question || !files || files.length === 0) {
       throw new Error("Question and files are required");
@@ -78,6 +78,24 @@ INSTRUCTIONS FOR YOUR RESPONSE (MUST-FOLLOW)
 - Include specific quantitative and qualitative details wherever available.
 - When you see any RAG / rating / scoring system, EXPLAIN the full scale and what each rating means.
 - Explain the CONTEXT.`;
+
+    // If questions template is provided, modify the prompt
+    if (questionsTemplate && Array.isArray(questionsTemplate) && questionsTemplate.length > 0) {
+      defaultPrompt = customPrompt || `You are a domain-specific expert AI assistant. Analyze the provided documents carefully and answer questions with precision and accuracy based strictly on the document content.`;
+      
+      defaultPrompt += `\n\nIMPORTANT: A questions template has been provided. You must address each question from the template systematically in your response. Here are the questions to answer:\n\n`;
+      
+      questionsTemplate.forEach((q: any, index: number) => {
+        const questionText = typeof q === 'string' ? q : (q.question || q.text || JSON.stringify(q));
+        defaultPrompt += `${index + 1}. ${questionText}\n`;
+      });
+      
+      defaultPrompt += `\n\nFor each question:
+- Reference specific sections and details from the uploaded documents
+- If information is not available in the documents, clearly state this
+- Provide detailed, well-structured responses
+- Use the context from the custom prompt (if provided) as guardrails for your analysis\n`;
+    }
 
     if (generateReport) {
       defaultPrompt += `
