@@ -50,14 +50,29 @@ serve(async (req) => {
     // Build the prompt based on what's provided
     let finalPrompt = '';
     
+    // Build list of actual document names for citation reference
+    const documentList = files.map((f: any, idx: number) => {
+      const docName = f.fileId ? f.fileId.split('/').pop() : `Document_${idx + 1}`;
+      return `${idx + 1}. ${docName}`;
+    }).join('\n');
+    
     // Add explicit instruction to read the uploaded files FIRST
-    const documentsInstruction = `\n\n## UPLOADED DOCUMENTS TO ANALYZE:\nYou have been provided with ${files.length} document(s) that contain ALL the information you need to answer the questions below. These documents are attached to this request and you MUST read them thoroughly before responding.\n\n**CRITICAL REQUIREMENTS:**
+    const documentsInstruction = `\n\n## UPLOADED DOCUMENTS TO ANALYZE:\nYou have been provided with ${files.length} document(s) that contain ALL the information you need to answer the questions below. These documents are attached to this request and you MUST read them thoroughly before responding.
+
+**ACTUAL DOCUMENTS PROVIDED:**
+${documentList}
+
+**CRITICAL REQUIREMENTS:**
 1. READ ALL uploaded documents completely and carefully before answering
 2. SEARCH the documents for relevant information for each question
 3. CITE specific sections, page numbers, tables, and figures from the documents
 4. Quote exact text from the documents where relevant
-5. If specific information is not found after thorough search, state: "This information was not found in the uploaded documents after thorough review"
-6. DO NOT use general knowledge - base your answers ONLY on what is explicitly stated in the uploaded documents\n\n`;
+5. **CITATIONS MUST ONLY REFERENCE THE ACTUAL DOCUMENTS LISTED ABOVE** - Do NOT make up or assume document names
+6. Citation format: [Source: <Actual Document Name from list above>, section <X>, page <Y>]
+7. If you cannot determine which specific document contains information, use: [Source: Uploaded Documents]
+8. If specific information is not found after thorough search, state: "This information was not found in the uploaded documents after thorough review"
+9. DO NOT use general knowledge - base your answers ONLY on what is explicitly stated in the uploaded documents
+10. **NEVER hallucinate or fabricate document names in citations**\n\n`;
     
     // Default domain specialist prompt
     const defaultPrompt = `You are a domain specialist assistant.
@@ -83,8 +98,10 @@ You have access to:
 
 3. Use citations to supporting documentation.
    - For key statements (definitions, methodology, parameter values, governance arrangements), provide citations like:
-     [Source: <Document Title>, p.<page>, section <heading>, table/figure <label>]
-   - Use any metadata from the retrieved content (titles, headings, page numbers, table/figure names).
+     [Source: <Document Name>, section <X>, page <Y>]
+   - **CRITICAL:** Only cite documents that were actually uploaded - do NOT invent or assume document names
+   - Use the exact document names provided in the "ACTUAL DOCUMENTS PROVIDED" section
+   - If you cannot determine the specific source document, use: [Source: Uploaded Documents]
    - If precise page numbers are unknown, cite section headings or table/figure labels instead.
 
 4. Structure and tone.
@@ -102,6 +119,7 @@ You have access to:
 
 6. No fabrication.
    - Do not invent numeric values, policies, or governance processes.
+   - **NEVER fabricate or hallucinate document names in citations - only use the actual document names provided**
    - If you infer something from the documents, state that it is an inference.
    - If you cannot answer a part of the question from the available information, say so clearly and briefly explain the limitation.`;
 
@@ -124,16 +142,19 @@ For EACH question above, you must:
 1. First, SEARCH the uploaded documents for relevant information about this question
 2. Provide a COMPLETE, DETAILED response using ONLY information found in the uploaded documents
 3. Structure your answer with clear headings (format: "Response to Question X.X – <Title>")
-4. CITE specific sources with format: [Source: <Document Name>, section <X.X>, page <Y>]
-5. Include relevant quotes, data points, tables, and figures from the documents
-6. If information is not found after thorough document search, state: "This specific information was not found in the uploaded documents"
-7. Follow the format and structure shown in any example responses provided in the custom prompt
-8. Be thorough and comprehensive - provide detailed, well-structured responses with evidence from documents
+4. CITE specific sources using ONLY the actual document names from the "ACTUAL DOCUMENTS PROVIDED" list above
+5. Citation format: [Source: <Actual Document Name>, section <X>, page <Y>]
+6. Include relevant quotes, data points, tables, and figures from the documents
+7. If information is not found after thorough document search, state: "This specific information was not found in the uploaded documents"
+8. Follow the format and structure shown in any example responses provided in the custom prompt
+9. Be thorough and comprehensive - provide detailed, well-structured responses with evidence from documents
 
 **CRITICAL:** 
 - You MUST answer ALL questions
 - Do NOT acknowledge or summarize the task - provide actual detailed responses
-- ALWAYS cite your sources from the uploaded documents
+- ALWAYS cite your sources from the uploaded documents using actual document names only
+- **NEVER invent, fabricate, or hallucinate document names in citations**
+- If you cannot determine the specific source document, use: [Source: Uploaded Documents]
 - If you cannot find information in the documents, explicitly say so - do not use general knowledge`;
     } else {
       // No questions template - use standard prompt with user's question
@@ -147,7 +168,10 @@ For EACH question above, you must:
 - Provide a COMPLETE, DETAILED, and THOROUGH answer based on ALL relevant information from the documents
 - Structure your response with clear headings and subheadings
 - Include specific quantitative and qualitative details wherever available
-- CITE your sources with document names, sections, and page numbers`;
+- CITE your sources using ONLY the actual document names from the "ACTUAL DOCUMENTS PROVIDED" list
+- Citation format: [Source: <Actual Document Name>, section <X>, page <Y>]
+- **NEVER invent or fabricate document names in your citations**
+- If you cannot determine the specific source document, use: [Source: Uploaded Documents]`;
     }
 
     if (generateReport) {
