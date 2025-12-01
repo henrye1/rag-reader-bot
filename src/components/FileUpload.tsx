@@ -166,8 +166,8 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
   return (
     <Card className="shadow-soft">
       <CardHeader>
-        <CardTitle>Upload Document</CardTitle>
-        <CardDescription>Upload PDF or JSON files to ask questions about them</CardDescription>
+        <CardTitle>Step 1: Upload Reference Documents</CardTitle>
+        <CardDescription>Upload PDF or JSON files to query against</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div

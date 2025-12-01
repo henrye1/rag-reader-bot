@@ -3,8 +3,12 @@ import { FileUpload } from "@/components/FileUpload";
 import { ChatInterface } from "@/components/ChatInterface";
 import { DocumentList } from "@/components/DocumentList";
 import { ReportViewer } from "@/components/ReportViewer";
+import { WorkflowSteps } from "@/components/WorkflowSteps";
+import { PromptUploader } from "@/components/PromptUploader";
+import { QuestionsUploader } from "@/components/QuestionsUploader";
 import { FileText } from "lucide-react";
 import { useLocalStorage } from "@/hooks/use-local-storage";
+import { useToast } from "@/hooks/use-toast";
 
 export interface UploadedDocument {
   id: string;
@@ -19,6 +23,11 @@ const Index = () => {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [generatedReport, setGeneratedReport] = useLocalStorage<string | null>("generatedReport", null);
   const [reportData, setReportData] = useLocalStorage<any>("reportData", null);
+  const [customPrompt, setCustomPrompt] = useLocalStorage<string | null>("customPrompt", null);
+  const [promptFileName, setPromptFileName] = useLocalStorage<string | null>("promptFileName", null);
+  const [questionsTemplate, setQuestionsTemplate] = useLocalStorage<any[] | null>("questionsTemplate", null);
+  const [questionsFileName, setQuestionsFileName] = useLocalStorage<string | null>("questionsFileName", null);
+  const { toast } = useToast();
 
   const handleFileSelect = (files: File[]) => {
     setSelectedFiles((prev) => [...prev, ...files]);
@@ -51,6 +60,55 @@ const Index = () => {
     setReportData(data);
   };
 
+  const handlePromptLoaded = (prompt: string, fileName: string) => {
+    setCustomPrompt(prompt);
+    setPromptFileName(fileName);
+  };
+
+  const handlePromptRemoved = () => {
+    setCustomPrompt(null);
+    setPromptFileName(null);
+    toast({
+      title: "Prompt removed",
+      description: "Using default prompt",
+    });
+  };
+
+  const handleQuestionsLoaded = (questions: any[], fileName: string) => {
+    setQuestionsTemplate(questions);
+    setQuestionsFileName(fileName);
+  };
+
+  const handleQuestionsRemoved = () => {
+    setQuestionsTemplate(null);
+    setQuestionsFileName(null);
+    toast({
+      title: "Questions template removed",
+      description: "You can now ask questions freely",
+    });
+  };
+
+  const workflowSteps = [
+    {
+      id: 1,
+      title: "Upload Reference Documents",
+      description: "Upload the documents you want to query",
+      completed: documents.length > 0,
+    },
+    {
+      id: 2,
+      title: "Import Custom Prompt (Optional)",
+      description: "Upload a custom prompt file to guide the AI",
+      completed: !!promptFileName,
+    },
+    {
+      id: 3,
+      title: "Upload Questions or Ask Directly",
+      description: "Batch upload questions or interact via chat",
+      completed: !!questionsFileName || false,
+    },
+  ];
+
   return (
     <div className="min-h-screen bg-gradient-subtle">
       {/* Header */}
@@ -61,8 +119,8 @@ const Index = () => {
               <FileText className="h-5 w-5 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-foreground">Document Q&A Bot</h1>
-              <p className="text-sm text-muted-foreground">Ask questions about your documents</p>
+              <h1 className="text-2xl font-bold text-foreground">Document Q&A System</h1>
+              <p className="text-sm text-muted-foreground">Structured workflow for document analysis</p>
             </div>
           </div>
         </div>
@@ -71,9 +129,13 @@ const Index = () => {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
         <div className="space-y-6 max-w-7xl mx-auto">
+          {/* Workflow Guide */}
+          <WorkflowSteps steps={workflowSteps} />
+          
           {/* File Upload Section */}
-          <div className="grid lg:grid-cols-[350px,1fr] gap-6">
+          <div className="grid lg:grid-cols-[400px,1fr] gap-6">
             <aside className="space-y-6">
+              {/* Step 1: Upload Documents */}
               <FileUpload
                 onFileSelect={handleFileSelect}
                 selectedFiles={selectedFiles}
@@ -86,6 +148,22 @@ const Index = () => {
                 onRemove={handleRemoveDocument}
                 onClearAll={handleClearAllDocuments}
               />
+
+              {/* Step 2: Upload Custom Prompt */}
+              <PromptUploader
+                customPrompt={customPrompt}
+                promptFileName={promptFileName}
+                onPromptLoaded={handlePromptLoaded}
+                onPromptRemoved={handlePromptRemoved}
+              />
+
+              {/* Step 3: Upload Questions */}
+              <QuestionsUploader
+                questionsTemplate={questionsTemplate}
+                questionsFileName={questionsFileName}
+                onQuestionsLoaded={handleQuestionsLoaded}
+                onQuestionsRemoved={handleQuestionsRemoved}
+              />
             </aside>
 
             {/* Chat Area */}
@@ -93,6 +171,8 @@ const Index = () => {
               <ChatInterface 
                 documents={documents}
                 onReportGenerated={handleReportGenerated}
+                customPrompt={customPrompt}
+                questionsTemplate={questionsTemplate}
               />
             </div>
           </div>

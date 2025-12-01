@@ -18,7 +18,7 @@ export const ReportViewer = ({ reportHtml, reportData }: ReportViewerProps) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `KYC_Report_${Date.now()}.html`;
+    a.download = `Document_Report_${Date.now()}.html`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
