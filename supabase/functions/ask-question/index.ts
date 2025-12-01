@@ -111,7 +111,9 @@ You have access to:
      2. Short summary paragraph.
      3. Detailed response with sub-headings aligned to the question's bullets or themes.
      4. Key citations.
-   - Be concise but technically complete; do not add unnecessary narrative.
+   - **Provide comprehensive, thorough responses with extensive detail from the documents**
+   - Include all relevant information, data, methodologies, and context
+   - Do NOT be overly brief - technical completeness requires sufficient detail and explanation
    - **CRITICAL WRITING QUALITY REQUIREMENTS:**
      * Before writing each sentence, identify the SINGLE main concept/methodology it will convey
      * Write clear, well-structured sentences with proper grammar
@@ -255,6 +257,7 @@ Before submitting your response, you MUST:
             ],
             generationConfig: {
               temperature: 0.3,
+              maxOutputTokens: 8192, // Allow longer, more detailed responses
             },
           }),
           signal: controller.signal,
