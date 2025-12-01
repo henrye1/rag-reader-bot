@@ -112,12 +112,15 @@ You have access to:
      3. Detailed response with sub-headings aligned to the question's bullets or themes.
      4. Key citations.
    - Be concise but technically complete; do not add unnecessary narrative.
-   - **WRITING QUALITY REQUIREMENTS:**
+   - **CRITICAL WRITING QUALITY REQUIREMENTS:**
+     * Before writing each sentence, identify the SINGLE main concept/methodology it will convey
      * Write clear, well-structured sentences with proper grammar
-     * NEVER repeat the same concept, term, or methodology twice in the same sentence
-     * Each sentence should convey one clear idea
+     * **ABSOLUTELY NEVER repeat any term, concept, methodology, or approach more than ONCE in the same sentence**
+     * Each sentence conveys ONE clear idea with ONE mention of each technical term
+     * Example of WRONG: "The model uses approach X, combining approach X with approach X methodology"
+     * Example of CORRECT: "The model uses approach X as documented in the methodology"
      * Do NOT mention methodologies, approaches, or technical terms unless they are explicitly stated in the uploaded documents
-     * If you mention a methodology or approach, use it only once per sentence and ensure it comes directly from the documents
+     * After drafting, review each sentence to eliminate any repeated terms or redundancy
 
 5. Handling missing or incomplete information.
    - If the specific detail requested is not available in the retrieved documents, clearly state: "This specific information was not found in the uploaded documents"
@@ -157,18 +160,22 @@ For EACH question above, you must:
 8. Follow the format and structure shown in any example responses provided in the custom prompt
 9. Be thorough and comprehensive - provide detailed, well-structured responses with evidence from documents
 
-**WRITING QUALITY REQUIREMENTS:**
+**CRITICAL WRITING QUALITY REQUIREMENTS:**
+- Before writing each sentence, identify the ONE main point it will make
 - Write clear, well-structured sentences with proper grammar
-- NEVER repeat the same concept, term, methodology, or approach twice in the same sentence
-- Each sentence should make one clear point
-- Do NOT mention methodologies, models, approaches, or technical terms unless they are explicitly stated in the uploaded documents
-- Avoid redundancy and repetition within sentences and paragraphs
+- **ABSOLUTELY NEVER use the same term, concept, methodology, or approach more than ONCE in a single sentence**
+- Example of FORBIDDEN: "The model uses the hazard rate approach, combining duration/hazard rate approach and the hazard rate approach"
+- Example of CORRECT: "The model uses a hazard rate approach with duration-based transitions"
+- Do NOT mention ANY methodologies, models, approaches, or technical terms unless explicitly stated in the uploaded documents
+- After drafting each sentence, review it to ensure no terms are repeated
+- Eliminate all redundancy within sentences and paragraphs
 
 **CRITICAL:** 
 - You MUST answer ALL questions
 - Do NOT acknowledge or summarize the task - provide actual detailed responses
 - ALWAYS cite your sources from the uploaded documents using actual document names only
-- **NEVER invent, fabricate, or hallucinate document names, methodologies, approaches, or technical terms in citations**
+- **NEVER invent, fabricate, or hallucinate document names, methodologies, approaches, or technical terms**
+- Review your complete response before finalizing to check for repeated terms in sentences
 - If you cannot determine the specific source document, use: [Source: Uploaded Documents]
 - If you cannot find information in the documents, explicitly say so - do not use general knowledge`;
     } else {
@@ -188,12 +195,16 @@ For EACH question above, you must:
 - **NEVER invent or fabricate document names in your citations**
 - If you cannot determine the specific source document, use: [Source: Uploaded Documents]
 
-**WRITING QUALITY REQUIREMENTS:**
+**CRITICAL WRITING QUALITY REQUIREMENTS:**
+- Before writing each sentence, identify the ONE main point it will make
 - Write clear, well-structured sentences with proper grammar
-- NEVER repeat the same concept, term, methodology, or approach twice in the same sentence
-- Each sentence should convey one clear idea
-- Do NOT mention methodologies, models, approaches, or technical terms unless they are explicitly stated in the uploaded documents
-- Avoid redundancy and repetition within sentences and paragraphs`;
+- **ABSOLUTELY NEVER use the same term, concept, methodology, or approach more than ONCE in a single sentence**
+- Example of FORBIDDEN: "employs a transition rate approach, using a duration/hazard rate approach and the hazard rate approach"
+- Example of CORRECT: "employs a transition rate approach based on hazard rates"
+- Do NOT mention ANY methodologies, models, approaches, or technical terms unless explicitly stated in the uploaded documents
+- After drafting each sentence, review it to ensure no terms are repeated
+- Review your complete response before finalizing to eliminate any sentence-level redundancy`;
+
     }
 
     if (generateReport) {
@@ -205,6 +216,19 @@ Generate a structured report following this format:
 - Recommendations section
 - Use professional styling with appropriate emphasis on key findings`;
     }
+    
+    // Add final quality control instruction
+    finalPrompt += `\n\n## FINAL QUALITY CONTROL (MANDATORY):
+Before submitting your response, you MUST:
+1. Review EVERY sentence for repeated terms (e.g., same methodology/approach mentioned twice in one sentence)
+2. Verify ALL methodologies/approaches mentioned exist in the uploaded documents
+3. Check that each citation uses actual document names from the "ACTUAL DOCUMENTS PROVIDED" list
+4. Confirm no terms like "duration approach", "hazard rate approach" etc. appear more than once per sentence
+5. If you find any violations, rewrite those sentences immediately
+
+**EXAMPLES OF VIOLATIONS TO FIX:**
+❌ "The model uses approach X, combining approach X with approach X" → ✅ "The model uses approach X"
+❌ "employs a transition rate approach, using a duration/hazard rate approach and the hazard rate approach" → ✅ "employs a transition rate approach based on hazard rates"`;
 
     parts.push({
       text: finalPrompt,
