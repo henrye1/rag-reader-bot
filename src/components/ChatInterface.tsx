@@ -102,7 +102,7 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
 
     try {
       // Upload attached files first if any
-      let attachedDocs: { fileId: string; content?: string; isJson?: boolean }[] = [];
+      let attachedDocs: { fileId: string; fileName?: string; content?: string; isJson?: boolean }[] = [];
       if (attachedFiles.length > 0) {
         setIsUploading(true);
         for (const file of attachedFiles) {
@@ -119,6 +119,7 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
           if (uploadError) throw uploadError;
           attachedDocs.push({
             fileId: uploadData.fileId,
+            fileName: uploadData.displayName || file.name,
             content: uploadData.content,
             isJson: uploadData.fileId?.startsWith('json-'),
           });
@@ -130,7 +131,8 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
       // Combine all file data
       const allFiles = [
         ...documents.map((doc) => ({ 
-          fileId: doc.id, 
+          fileId: doc.id,
+          fileName: doc.name,
           content: doc.content,
           isJson: doc.isJson 
         })),

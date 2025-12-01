@@ -24,7 +24,7 @@ serve(async (req) => {
 
     console.log(`Asking question about ${files.length} file(s): ${question}`);
     console.log(`Generate report: ${generateReport}`);
-    console.log(`Files being sent:`, files.map((f: any) => ({ fileId: f.fileId, isJson: f.isJson })));
+    console.log(`Files being sent:`, files.map((f: any) => ({ fileId: f.fileId, fileName: f.fileName, isJson: f.isJson })));
 
     // Build the request with file references and question
     const parts = [];
@@ -52,7 +52,7 @@ serve(async (req) => {
     
     // Build list of actual document names for citation reference
     const documentList = files.map((f: any, idx: number) => {
-      const docName = f.fileId ? f.fileId.split('/').pop() : `Document_${idx + 1}`;
+      const docName = f.fileName || (f.fileId ? f.fileId.split('/').pop() : `Document_${idx + 1}`);
       return `${idx + 1}. ${docName}`;
     }).join('\n');
     
