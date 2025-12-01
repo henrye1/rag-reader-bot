@@ -180,9 +180,10 @@ Generate a structured report following this format:
     let reportData = null;
 
     if (generateReport && answer) {
-      // Extract structured data from answer and generate HTML report
-      reportHtml = generateReportHtml(answer, files);
-      reportData = { answer, files };
+      // Generate context-aware report metadata first
+      const reportContext = await generateReportContext(answer, question, files, customPrompt, GOOGLE_API_KEY);
+      reportHtml = generateReportHtml(answer, files, reportContext);
+      reportData = { answer, files, reportContext };
     }
 
     return new Response(
@@ -209,84 +210,112 @@ Generate a structured report following this format:
   }
 });
 
-function generateReportHtml(answer: string, files: any[]): string {
-  const timestamp = new Date().toISOString().split('T')[0];
-  
-  let entityName = "Entity Name Not Available";
-  let registrationNo = "N/A";
-  let screeningData: any = null;
-  
-  // Extract entity details from JSON files
-  for (const file of files) {
-    if (file.isJson && file.content) {
-      try {
-        const jsonData = JSON.parse(file.content);
-        if (jsonData.relatedCompanies && jsonData.relatedCompanies[0]) {
-          entityName = jsonData.relatedCompanies[0].registeredName || entityName;
-          registrationNo = jsonData.relatedCompanies[0].registrationNumber || registrationNo;
-        }
-        if (jsonData.screenings && jsonData.screenings[0]) {
-          screeningData = jsonData.screenings[0];
-        }
-      } catch (e) {
-        console.error("Error parsing JSON for report:", e);
+async function generateReportContext(answer: string, question: string, files: any[], customPrompt: string | null, apiKey: string): Promise<any> {
+  // Ask AI to generate contextual report metadata
+  const contextPrompt = `Based on the following analysis and context, generate appropriate report metadata:
+
+ANALYSIS PERFORMED:
+${answer.substring(0, 1500)}
+
+USER QUESTION/REQUEST:
+${question}
+
+CUSTOM PROMPT CONTEXT:
+${customPrompt || 'General document analysis'}
+
+NUMBER OF DOCUMENTS: ${files.length}
+
+Generate a JSON object with the following structure:
+{
+  "reportTitle": "Short, descriptive title for this report (e.g., 'Financial Analysis Report', 'Compliance Review', 'Document Summary')",
+  "reportType": "Type of analysis (e.g., 'Financial Analysis', 'Due Diligence', 'Compliance Review', 'Technical Assessment')",
+  "entityName": "Main entity/subject being analyzed (extract from context, or 'Multiple Documents' if not specific)",
+  "reportDescription": "Brief 1-2 sentence description of what this report covers",
+  "keyMetrics": [
+    {"label": "Metric name", "value": "Metric value", "status": "positive/neutral/negative/info"}
+  ],
+  "summary": "2-3 sentence executive summary of key findings"
+}
+
+Respond with ONLY the JSON object, no additional text.`;
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: contextPrompt }] }],
+        }),
+      }
+    );
+
+    if (response.ok) {
+      const data = await response.json();
+      const contextText = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+      // Extract JSON from potential markdown code blocks
+      const jsonMatch = contextText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
       }
     }
+  } catch (e) {
+    console.error("Error generating report context:", e);
   }
 
-  // Parse the answer to extract structured sections
-  const sections = parseAnswerSections(answer);
-  
-  // Determine risk level based on screening data or answer content
-  let riskLevel = "MEDIUM";
-  let riskColor = "#ffc107";
-  let recommendation = "REFER FOR REVIEW";
-  
-  if (screeningData?.responsePayload) {
-    const payload = screeningData.responsePayload;
-    if (payload.application_status === "decline") {
-      riskLevel = "CRITICAL";
-      riskColor = "#c00";
-      recommendation = "DECLINE - DO NOT ONBOARD";
-    } else if (payload.screeningPEPHit || payload.screeningSpecialInterestCategoriesHit) {
-      riskLevel = "HIGH";
-      riskColor = "#ff8c00";
-      recommendation = "REFER FOR ENHANCED DUE DILIGENCE";
-    }
-  }
+  // Fallback to generic context
+  return {
+    reportTitle: "Document Analysis Report",
+    reportType: "General Analysis",
+    entityName: files.length === 1 ? files[0].fileId : `${files.length} Documents`,
+    reportDescription: "Comprehensive analysis of uploaded documents based on provided questions and context.",
+    keyMetrics: [
+      { label: "Documents Analyzed", value: files.length.toString(), status: "info" }
+    ],
+    summary: "Analysis completed successfully based on the provided documents and questions."
+  };
+}
 
-  // Build screening hits section
-  let screeningHits = '';
-  if (screeningData?.responsePayload) {
-    const payload = screeningData.responsePayload;
-    screeningHits = `
+function generateReportHtml(answer: string, files: any[], reportContext: any): string {
+  const timestamp = new Date().toISOString().split('T')[0];
+  
+  // Use context-aware report metadata
+  const reportTitle = reportContext.reportTitle || "Document Analysis Report";
+  const entityName = reportContext.entityName || "Analysis Subject";
+  const reportDescription = reportContext.reportDescription || "Comprehensive document analysis";
+  const reportType = reportContext.reportType || "General Analysis";
+  const summary = reportContext.summary || "Analysis completed successfully.";
+  
+  // Determine primary color based on status in key metrics
+  let primaryColor = "#2196f3"; // Default blue
+  const hasNegative = reportContext.keyMetrics?.some((m: any) => m.status === "negative");
+  const hasPositive = reportContext.keyMetrics?.some((m: any) => m.status === "positive");
+  
+  if (hasNegative) {
+    primaryColor = "#ff8c00"; // Orange for caution
+  } else if (hasPositive) {
+    primaryColor = "#4caf50"; // Green for positive
+  }
+  
+  // Build key metrics section
+  let metricsHtml = '';
+  if (reportContext.keyMetrics && reportContext.keyMetrics.length > 0) {
+    const statusColors: any = {
+      positive: '#4caf50',
+      negative: '#ff8c00',
+      neutral: '#666',
+      info: '#2196f3'
+    };
+    
+    metricsHtml = `
         <div class="risk-summary">
-            <div class="risk-card" style="background: ${payload.screeningSanctionsHit ? '#c00' : '#4caf50'};"><h3>Sanctions Hit</h3><div class="value">${payload.screeningSanctionsHit ? 'YES' : 'NO'}</div></div>
-            <div class="risk-card" style="background: ${payload.screeningPEPHit ? '#ff8c00' : '#4caf50'};"><h3>PEP Hit</h3><div class="value">${payload.screeningPEPHit ? 'YES' : 'NO'}</div></div>
-            <div class="risk-card" style="background: ${payload.screeningSpecialInterestCategoriesHit ? '#c00' : '#4caf50'};"><h3>Special Interest</h3><div class="value">${payload.screeningSpecialInterestCategoriesHit ? 'YES' : 'NO'}</div></div>
-            <div class="risk-card" style="background: #666;"><h3>Files Analyzed</h3><div class="value">${files.length}</div></div>
-        </div>`;
-  }
-
-  // Build rules fired section
-  let rulesFired = '';
-  if (screeningData?.responsePayload?.rules_fired && screeningData.responsePayload.rules_fired.length > 0) {
-    rulesFired = `
-        <div class="section">
-            <h2>2. SCREENING ALERTS</h2>
-            <h3>Rules Fired</h3>
-            <table>
-                <thead><tr><th>Rule ID</th><th>Category</th><th>Description</th></tr></thead>
-                <tbody>
-                    ${screeningData.responsePayload.rules_fired.map((rule: any) => `
-                    <tr>
-                        <td>${rule.rule_id}</td>
-                        <td><span class="badge ${rule.description.includes('PEP') ? 'badge-high' : 'badge-critical'}">${rule.description.includes('PEP') ? 'PEP' : 'Special Interest'}</span></td>
-                        <td>${rule.detail || rule.description}</td>
-                    </tr>
-                    `).join('')}
-                </tbody>
-            </table>
+            ${reportContext.keyMetrics.map((metric: any) => `
+                <div class="risk-card" style="background: ${statusColors[metric.status] || '#666'};">
+                    <h3>${metric.label}</h3>
+                    <div class="value">${metric.value}</div>
+                </div>
+            `).join('')}
         </div>`;
   }
 
@@ -295,13 +324,13 @@ function generateReportHtml(answer: string, files: any[]): string {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KYC/AML Screening Report - ${entityName}</title>
+    <title>${reportTitle} - ${entityName}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; background: #f5f5f5; padding: 20px; }
         .container { max-width: 1200px; margin: 0 auto; background: white; padding: 30px; box-shadow: 0 0 20px rgba(0,0,0,0.1); }
-        .header { border-bottom: 4px solid ${riskColor}; padding-bottom: 20px; margin-bottom: 30px; }
-        .header h1 { color: ${riskColor}; font-size: 28px; margin-bottom: 10px; }
+        .header { border-bottom: 4px solid ${primaryColor}; padding-bottom: 20px; margin-bottom: 30px; }
+        .header h1 { color: ${primaryColor}; font-size: 28px; margin-bottom: 10px; }
         .header .subtitle { color: #666; font-size: 14px; line-height: 1.8; }
         .alert-box { padding: 20px; margin: 20px 0; border-left: 5px solid; border-radius: 4px; }
         .alert-critical { background: #ffe6e6; border-color: #c00; }
@@ -338,49 +367,36 @@ function generateReportHtml(answer: string, files: any[]): string {
 <body>
     <div class="container">
         <div class="header">
-            <h1>KYC/AML SCREENING REPORT</h1>
+            <h1>${reportTitle.toUpperCase()}</h1>
             <div class="subtitle">
-                <strong>Entity:</strong> ${entityName}<br>
-                <strong>Registration No:</strong> ${registrationNo}<br>
+                <strong>Subject:</strong> ${entityName}<br>
+                <strong>Analysis Type:</strong> ${reportType}<br>
                 <strong>Report Date:</strong> ${timestamp}<br>
-                <strong>Files Analyzed:</strong> ${files.length}
+                <strong>Documents Analyzed:</strong> ${files.length}
             </div>
         </div>
 
-        <div class="alert-box ${riskLevel === 'CRITICAL' ? 'alert-critical' : riskLevel === 'HIGH' ? 'alert-high' : 'alert-medium'}">
-            <h2 style="color: ${riskColor}; margin-bottom: 10px;">${riskLevel} RISK ASSESSMENT</h2>
-            <p><strong>Recommendation:</strong> <span class="highlight-text">${recommendation}</span></p>
-            <p style="margin-top: 10px;"><strong>Summary:</strong> ${sections.summary || 'Comprehensive analysis of uploaded documents completed.'}</p>
+        <div class="alert-box alert-medium">
+            <h2 style="color: ${primaryColor}; margin-bottom: 10px;">EXECUTIVE SUMMARY</h2>
+            <p><strong>Description:</strong> ${reportDescription}</p>
+            <p style="margin-top: 10px;"><strong>Key Findings:</strong> ${summary}</p>
         </div>
 
-        ${screeningHits}
-        ${rulesFired}
+        ${metricsHtml}
 
         <div class="section">
-            <h2>3. DETAILED ANALYSIS</h2>
+            <h2>DETAILED ANALYSIS</h2>
             ${formatAnalysisContent(answer)}
         </div>
 
         <div class="footer">
             <p><strong>CONFIDENTIAL REPORT</strong></p>
-            <p>Generated by: Automated Document Analysis System</p>
+            <p>Generated by: Document Analysis System</p>
             <p>Report ID: RPT-${Date.now()}</p>
         </div>
     </div>
 </body>
 </html>`;
-}
-
-function parseAnswerSections(answer: string): any {
-  const sections: any = { summary: '' };
-  
-  // Extract summary/executive summary
-  const summaryMatch = answer.match(/(?:executive summary|summary)[:\n]+(.*?)(?:\n\n|$)/is);
-  if (summaryMatch) {
-    sections.summary = summaryMatch[1].trim().substring(0, 300);
-  }
-  
-  return sections;
 }
 
 function formatAnalysisContent(answer: string): string {
