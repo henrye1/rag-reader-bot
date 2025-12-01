@@ -65,6 +65,8 @@ const Index = () => {
     setQuestionsFileName(null);
     setGeneratedReport(null);
     setReportData(null);
+    // Clear chat messages from localStorage
+    localStorage.removeItem("chatMessages");
     toast({
       title: "Reset Complete",
       description: "All data has been cleared. You can start fresh!",
