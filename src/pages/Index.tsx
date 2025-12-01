@@ -89,7 +89,7 @@ const Index = () => {
     setPromptFileName(null);
     toast({
       title: "Prompt removed",
-      description: "Using default prompt",
+      description: "Using default domain specialist prompt",
     });
   };
 
@@ -122,8 +122,8 @@ const Index = () => {
     },
     {
       id: 3,
-      title: "Upload Questions or Ask Directly",
-      description: "Batch upload questions or interact via chat",
+      title: "Upload Questions (Optional)",
+      description: "Batch upload questions or ask directly in chat",
       completed: !!questionsFileName || false,
     },
   ];

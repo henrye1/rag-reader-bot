@@ -68,7 +68,7 @@ export const PromptUploader = ({ customPrompt, promptFileName, onPromptLoaded, o
     <Card className="shadow-soft">
       <CardHeader>
         <CardTitle>Step 2: Import Custom Prompt (Optional)</CardTitle>
-        <CardDescription>Upload a custom prompt file to guide the AI's responses</CardDescription>
+        <CardDescription>Upload a custom prompt to override the default domain specialist prompt</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {promptFileName ? (
