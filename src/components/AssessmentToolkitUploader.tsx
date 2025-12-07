@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Upload, FileText, Loader2, X } from "lucide-react";
+import { Upload, FileText, Loader2, X, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
@@ -9,15 +9,23 @@ import type { UploadedDocument } from "@/pages/Index";
 const MAX_FILE_SIZE_MB = 40;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
-interface FileUploadProps {
+interface AssessmentToolkitUploaderProps {
   onFileSelect: (files: File[]) => void;
   selectedFiles: File[];
   onUploadComplete: (docs: UploadedDocument[]) => void;
   onClearSelected: () => void;
   onRemoveFile: (index: number) => void;
+  uploadedDocuments: UploadedDocument[];
 }
 
-export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onClearSelected, onRemoveFile }: FileUploadProps) => {
+export const AssessmentToolkitUploader = ({ 
+  onFileSelect, 
+  selectedFiles, 
+  onUploadComplete, 
+  onClearSelected, 
+  onRemoveFile,
+  uploadedDocuments 
+}: AssessmentToolkitUploaderProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const { toast } = useToast();
@@ -32,18 +40,18 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
     setIsDragging(false);
   }, []);
 
+  const validateFile = (file: File): boolean => {
+    const name = file.name.toLowerCase();
+    const validExtensions = ['.pdf', '.txt', '.json', '.doc', '.docx', '.md'];
+    return validExtensions.some(ext => name.endsWith(ext));
+  };
+
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       setIsDragging(false);
 
       const files = Array.from(e.dataTransfer.files);
-      const validateFile = (file: File): boolean => {
-        const name = file.name.toLowerCase();
-        const validExtensions = ['.pdf', '.txt', '.json', '.doc', '.docx', '.md'];
-        return validExtensions.some(ext => name.endsWith(ext));
-      };
-
       const validFiles = files.filter(validateFile);
 
       const oversizedFiles = validFiles.filter(f => f.size > MAX_FILE_SIZE_BYTES);
@@ -72,12 +80,6 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
   const handleFileInput = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files || []);
-      const validateFile = (file: File): boolean => {
-        const name = file.name.toLowerCase();
-        const validExtensions = ['.pdf', '.txt', '.json', '.doc', '.docx', '.md'];
-        return validExtensions.some(ext => name.endsWith(ext));
-      };
-      
       const validFiles = files.filter(validateFile);
 
       const oversizedFiles = validFiles.filter(f => f.size > MAX_FILE_SIZE_BYTES);
@@ -126,7 +128,7 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
           uploadedAt: new Date(),
           content: data.content,
           isJson: data.fileId?.startsWith('json-'),
-          type: 'client',
+          type: 'toolkit',
         });
       }
 
@@ -134,12 +136,12 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
 
       toast({
         title: "Success",
-        description: `${uploadedDocs.length} client document(s) uploaded successfully!`,
+        description: `${uploadedDocs.length} assessment toolkit file(s) uploaded!`,
       });
     } catch (error) {
       console.error("Upload error:", error);
       
-      let errorMessage = "Failed to upload documents";
+      let errorMessage = "Failed to upload assessment toolkit";
       if (error instanceof Error) {
         if (error.message.includes("Failed to send a request")) {
           errorMessage = "Upload timeout or network error. Please try again in a moment.";
@@ -161,8 +163,19 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
   return (
     <Card className="shadow-soft">
       <CardHeader>
-        <CardTitle>Step 1: Upload Client Documents</CardTitle>
-        <CardDescription>Upload client methodology, policy, or framework documents (PDF, TXT, JSON, etc.)</CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              Step 2: Upload Assessment Toolkit
+              {uploadedDocuments.length > 0 && (
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+              )}
+            </CardTitle>
+            <CardDescription>
+              Upload your compliance requirements, standards, and assessment criteria
+            </CardDescription>
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div
@@ -183,8 +196,10 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
               <Upload className="h-6 w-6 text-primary" />
             </div>
             <div>
-              <p className="font-medium text-foreground">Drop client documents here</p>
-              <p className="text-sm text-muted-foreground mt-1">PDF, TXT, JSON, DOC, DOCX, MD • or click to browse</p>
+              <p className="font-medium text-foreground">Drop assessment toolkit files here</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                PDF, TXT, JSON, DOC, DOCX, MD • or click to browse
+              </p>
             </div>
             <input
               type="file"
@@ -192,10 +207,10 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
               multiple
               onChange={handleFileInput}
               className="hidden"
-              id="file-upload"
+              id="toolkit-upload"
             />
             <Button variant="secondary" size="sm" asChild>
-              <label htmlFor="file-upload" className="cursor-pointer">
+              <label htmlFor="toolkit-upload" className="cursor-pointer">
                 Browse Files
               </label>
             </Button>
@@ -247,6 +262,22 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
                   `Upload ${selectedFiles.length} File(s)`
                 )}
               </Button>
+            </div>
+          </div>
+        )}
+
+        {uploadedDocuments.length > 0 && (
+          <div className="pt-2">
+            <p className="text-sm font-medium text-muted-foreground mb-2">
+              Uploaded Toolkit Files ({uploadedDocuments.length})
+            </p>
+            <div className="space-y-1">
+              {uploadedDocuments.map((doc) => (
+                <div key={doc.id} className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  <span className="truncate">{doc.name}</span>
+                </div>
+              ))}
             </div>
           </div>
         )}

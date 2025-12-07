@@ -1,6 +1,6 @@
-import { Download, FileText } from "lucide-react";
+import { Download, FileText, FileJson, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 
 interface ReportViewerProps {
@@ -18,7 +18,7 @@ export const ReportViewer = ({ reportHtml, reportData }: ReportViewerProps) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `Document_Report_${Date.now()}.html`;
+    a.download = `Audit_Review_Report_${Date.now()}.html`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -26,7 +26,26 @@ export const ReportViewer = ({ reportHtml, reportData }: ReportViewerProps) => {
 
     toast({
       title: "Report Downloaded",
-      description: "HTML report has been downloaded successfully",
+      description: "HTML audit report has been downloaded successfully",
+    });
+  };
+
+  const handleDownloadJson = () => {
+    if (!reportData) return;
+
+    const blob = new Blob([JSON.stringify(reportData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Audit_Review_Data_${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    toast({
+      title: "Data Downloaded",
+      description: "JSON report data has been downloaded successfully",
     });
   };
 
@@ -68,12 +87,18 @@ export const ReportViewer = ({ reportHtml, reportData }: ReportViewerProps) => {
     return (
       <Card className="shadow-soft">
         <CardHeader>
-          <CardTitle>Generated Report</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-5 w-5 text-primary" />
+            Audit Review Report
+          </CardTitle>
+          <CardDescription>
+            Your comprehensive compliance assessment will appear here
+          </CardDescription>
         </CardHeader>
         <CardContent className="text-center py-12">
           <FileText className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
           <p className="text-muted-foreground">
-            No report generated yet. Ask a question to generate a report.
+            No audit review report generated yet. Complete the workflow above to generate your report.
           </p>
         </CardContent>
       </Card>
@@ -83,13 +108,32 @@ export const ReportViewer = ({ reportHtml, reportData }: ReportViewerProps) => {
   return (
     <Card className="shadow-soft">
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>Generated Report</CardTitle>
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-5 w-5 text-primary" />
+            Audit Review Report
+          </CardTitle>
+          <CardDescription className="mt-1">
+            Comprehensive compliance assessment and gap analysis
+          </CardDescription>
+        </div>
         <div className="flex gap-2">
+          <Button
+            onClick={handleDownloadJson}
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            title="Download raw report data as JSON"
+          >
+            <FileJson className="h-4 w-4" />
+            JSON
+          </Button>
           <Button
             onClick={handleDownloadHtml}
             variant="outline"
             size="sm"
             className="gap-2"
+            title="Download report as HTML"
           >
             <Download className="h-4 w-4" />
             HTML
@@ -99,6 +143,7 @@ export const ReportViewer = ({ reportHtml, reportData }: ReportViewerProps) => {
             variant="outline"
             size="sm"
             className="gap-2"
+            title="Save report as PDF"
           >
             <Download className="h-4 w-4" />
             PDF
@@ -110,7 +155,7 @@ export const ReportViewer = ({ reportHtml, reportData }: ReportViewerProps) => {
           <iframe
             srcDoc={reportHtml}
             className="w-full h-[600px] border-0"
-            title="Generated Report"
+            title="Audit Review Report"
             sandbox="allow-same-origin"
           />
         </div>
