@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { FileUpload } from "@/components/FileUpload";
+import { AssessmentToolkitUploader } from "@/components/AssessmentToolkitUploader";
+import { ReviewGenerator } from "@/components/ReviewGenerator";
 import { ChatInterface } from "@/components/ChatInterface";
 import { DocumentList } from "@/components/DocumentList";
 import { ReportViewer } from "@/components/ReportViewer";
 import { WorkflowSteps } from "@/components/WorkflowSteps";
 import { PromptUploader } from "@/components/PromptUploader";
 import { QuestionsUploader } from "@/components/QuestionsUploader";
-import { FileText, Trash2 } from "lucide-react";
+import { FileCheck, Trash2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useToast } from "@/hooks/use-toast";
@@ -17,20 +19,90 @@ export interface UploadedDocument {
   uploadedAt: Date;
   content?: string; // For JSON files
   isJson?: boolean;
+  type?: 'client' | 'toolkit'; // Distinguish between client docs and assessment toolkit
 }
 
 const Index = () => {
+  // Client Documents
+  const [clientDocuments, setClientDocuments] = useLocalStorage<UploadedDocument[]>("clientDocuments", []);
+  const [selectedClientFiles, setSelectedClientFiles] = useState<File[]>([]);
+  
+  // Assessment Toolkit
+  const [toolkitDocuments, setToolkitDocuments] = useLocalStorage<UploadedDocument[]>("toolkitDocuments", []);
+  const [selectedToolkitFiles, setSelectedToolkitFiles] = useState<File[]>([]);
+  
+  // Legacy fields (for backward compatibility, will be removed)
   const [documents, setDocuments] = useLocalStorage<UploadedDocument[]>("documents", []);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [generatedReport, setGeneratedReport] = useLocalStorage<string | null>("generatedReport", null);
-  const [reportData, setReportData] = useLocalStorage<any>("reportData", null);
+  
+  // Report and Review
+  const [generatedReport, setGeneratedReport] = useLocalStorage<string | null>("auditReport", null);
+  const [reportData, setReportData] = useLocalStorage<any>("auditReportData", null);
+  
+  // Custom configurations (removed as they're not needed for audit reviews)
   const [customPrompt, setCustomPrompt] = useLocalStorage<string | null>("customPrompt", null);
   const [promptFileName, setPromptFileName] = useLocalStorage<string | null>("promptFileName", null);
   const [questionsTemplate, setQuestionsTemplate] = useLocalStorage<any[] | null>("questionsTemplate", null);
   const [questionsFileName, setQuestionsFileName] = useLocalStorage<string | null>("questionsFileName", null);
+  
   const [resetTrigger, setResetTrigger] = useState(0);
   const { toast } = useToast();
 
+  // Client Documents Handlers
+  const handleClientFileSelect = (files: File[]) => {
+    setSelectedClientFiles((prev) => [...prev, ...files]);
+  };
+
+  const handleClearSelectedClientFiles = () => {
+    setSelectedClientFiles([]);
+  };
+
+  const handleRemoveClientFile = (index: number) => {
+    setSelectedClientFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleClientFileUpload = (docs: UploadedDocument[]) => {
+    setClientDocuments((prev) => [...prev, ...docs]);
+    setSelectedClientFiles([]);
+  };
+
+  const handleRemoveClientDocument = (id: string) => {
+    setClientDocuments((prev) => prev.filter((doc) => doc.id !== id));
+  };
+
+  const handleClearAllClientDocuments = () => {
+    setClientDocuments([]);
+    setSelectedClientFiles([]);
+  };
+
+  // Toolkit Documents Handlers
+  const handleToolkitFileSelect = (files: File[]) => {
+    setSelectedToolkitFiles((prev) => [...prev, ...files]);
+  };
+
+  const handleClearSelectedToolkitFiles = () => {
+    setSelectedToolkitFiles([]);
+  };
+
+  const handleRemoveToolkitFile = (index: number) => {
+    setSelectedToolkitFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleToolkitFileUpload = (docs: UploadedDocument[]) => {
+    setToolkitDocuments((prev) => [...prev, ...docs]);
+    setSelectedToolkitFiles([]);
+  };
+
+  const handleRemoveToolkitDocument = (id: string) => {
+    setToolkitDocuments((prev) => prev.filter((doc) => doc.id !== id));
+  };
+
+  const handleClearAllToolkitDocuments = () => {
+    setToolkitDocuments([]);
+    setSelectedToolkitFiles([]);
+  };
+
+  // Legacy handlers (for backward compatibility)
   const handleFileSelect = (files: File[]) => {
     setSelectedFiles((prev) => [...prev, ...files]);
   };
@@ -58,19 +130,34 @@ const Index = () => {
   };
 
   const handleResetAll = () => {
+    // Reset client documents
+    setClientDocuments([]);
+    setSelectedClientFiles([]);
+    
+    // Reset toolkit documents
+    setToolkitDocuments([]);
+    setSelectedToolkitFiles([]);
+    
+    // Reset legacy documents
     setDocuments([]);
     setSelectedFiles([]);
+    
+    // Reset prompts and templates
     setCustomPrompt(null);
     setPromptFileName(null);
     setQuestionsTemplate(null);
     setQuestionsFileName(null);
+    
+    // Reset reports
     setGeneratedReport(null);
     setReportData(null);
+    
     // Trigger chat reset by incrementing the trigger
     setResetTrigger(prev => prev + 1);
+    
     toast({
       title: "Reset Complete",
-      description: "All data has been cleared. You can start fresh!",
+      description: "All audit review data has been cleared. You can start fresh!",
     });
   };
 
@@ -110,21 +197,21 @@ const Index = () => {
   const workflowSteps = [
     {
       id: 1,
-      title: "Upload Reference Documents",
-      description: "Upload the documents you want to query",
-      completed: documents.length > 0,
+      title: "Upload Client Documents",
+      description: "Upload client methodology, policy, or framework documents",
+      completed: clientDocuments.length > 0,
     },
     {
       id: 2,
-      title: "Import Custom Prompt (Optional)",
-      description: "Upload a custom prompt file to guide the AI",
-      completed: !!promptFileName,
+      title: "Upload Assessment Toolkit",
+      description: "Upload your compliance requirements and assessment criteria",
+      completed: toolkitDocuments.length > 0,
     },
     {
       id: 3,
-      title: "Ask Questions",
-      description: "Ask in the chat or optionally batch upload",
-      completed: !!questionsFileName || false,
+      title: "Generate Review Report",
+      description: "Compare documents and generate structured compliance report",
+      completed: !!generatedReport,
     },
   ];
 
@@ -136,11 +223,11 @@ const Index = () => {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-xl bg-gradient-primary flex items-center justify-center shadow-elegant">
-                <FileText className="h-5 w-5 text-white" />
+                <ShieldCheck className="h-5 w-5 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-foreground">Document Q&A System</h1>
-                <p className="text-sm text-muted-foreground">Structured workflow for document analysis</p>
+                <h1 className="text-2xl font-bold text-foreground">Audit Review System</h1>
+                <p className="text-sm text-muted-foreground">Automated compliance assessment and gap analysis</p>
               </div>
             </div>
             <Button
@@ -164,49 +251,37 @@ const Index = () => {
           {/* File Upload Section */}
           <div className="grid lg:grid-cols-[400px,1fr] gap-6">
             <aside className="space-y-6">
-              {/* Step 1: Upload Documents */}
+              {/* Step 1: Upload Client Documents */}
               <FileUpload
-                onFileSelect={handleFileSelect}
-                selectedFiles={selectedFiles}
-                onUploadComplete={handleFileUpload}
-                onClearSelected={handleClearSelectedFiles}
-                onRemoveFile={handleRemoveFile}
+                onFileSelect={handleClientFileSelect}
+                selectedFiles={selectedClientFiles}
+                onUploadComplete={handleClientFileUpload}
+                onClearSelected={handleClearSelectedClientFiles}
+                onRemoveFile={handleRemoveClientFile}
               />
               <DocumentList 
-                documents={documents} 
-                onRemove={handleRemoveDocument}
-                onClearAll={handleClearAllDocuments}
+                documents={clientDocuments} 
+                onRemove={handleRemoveClientDocument}
+                onClearAll={handleClearAllClientDocuments}
               />
 
-              {/* Step 2: Upload Custom Prompt */}
-              <PromptUploader
-                customPrompt={customPrompt}
-                promptFileName={promptFileName}
-                onPromptLoaded={handlePromptLoaded}
-                onPromptRemoved={handlePromptRemoved}
-              />
-
-              {/* Step 3: Upload Questions */}
-              <QuestionsUploader
-                questionsTemplate={questionsTemplate}
-                questionsFileName={questionsFileName}
-                onQuestionsLoaded={handleQuestionsLoaded}
-                onQuestionsRemoved={handleQuestionsRemoved}
+              {/* Step 2: Upload Assessment Toolkit */}
+              <AssessmentToolkitUploader
+                onFileSelect={handleToolkitFileSelect}
+                selectedFiles={selectedToolkitFiles}
+                onUploadComplete={handleToolkitFileUpload}
+                onClearSelected={handleClearSelectedToolkitFiles}
+                onRemoveFile={handleRemoveToolkitFile}
+                uploadedDocuments={toolkitDocuments}
               />
             </aside>
 
-            {/* Chat Area */}
+            {/* Review Generation Area */}
             <div className="lg:min-h-[calc(100vh-200px)]">
-              <ChatInterface 
-                documents={documents}
+              <ReviewGenerator 
+                clientDocuments={clientDocuments}
+                toolkitDocuments={toolkitDocuments}
                 onReportGenerated={handleReportGenerated}
-                customPrompt={customPrompt}
-                questionsTemplate={questionsTemplate}
-                resetTrigger={resetTrigger}
-                onClearChat={() => {
-                  setGeneratedReport(null);
-                  setReportData(null);
-                }}
               />
             </div>
           </div>
