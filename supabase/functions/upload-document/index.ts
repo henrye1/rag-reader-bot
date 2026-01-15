@@ -26,11 +26,11 @@ serve(async (req) => {
 
     console.log(`Uploading file: ${file.name}, size: ${file.size} bytes, type: ${file.type}`);
 
-    // Handle JSON files directly without Google API
+    // Handle JSON and TXT files directly without Google API
     if (file.type === "application/json" || file.name.endsWith(".json")) {
       console.log("Processing JSON file directly");
       const jsonContent = await file.text();
-      
+
       // Validate JSON
       try {
         JSON.parse(jsonContent);
@@ -52,14 +52,41 @@ serve(async (req) => {
       );
     }
 
-    // Step 1: Start resumable upload session for PDF files
+    // Handle TXT files directly without Google API
+    if (file.type === "text/plain" || file.name.endsWith(".txt")) {
+      console.log("Processing TXT file directly");
+      const txtContent = await file.text();
+
+      // Return immediately for TXT files - no Google API processing needed
+      return new Response(
+        JSON.stringify({
+          fileId: `txt-${Date.now()}-${file.name}`,
+          displayName: file.name,
+          state: "ACTIVE",
+          content: txtContent,
+        }),
+        {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    // Determine mime type for Google API upload
+    let mimeType = file.type;
+    if (file.name.endsWith(".docx") && !mimeType) {
+      mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    } else if (file.name.endsWith(".doc") && !mimeType) {
+      mimeType = "application/msword";
+    }
+
+    // Step 1: Start resumable upload session for PDF and Word files
     const uploadUrl = `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${GOOGLE_API_KEY}`;
-    
+
     const metadataHeaders = {
       "X-Goog-Upload-Protocol": "resumable",
       "X-Goog-Upload-Command": "start",
       "X-Goog-Upload-Header-Content-Length": file.size.toString(),
-      "X-Goog-Upload-Header-Content-Type": file.type,
+      "X-Goog-Upload-Header-Content-Type": mimeType,
       "Content-Type": "application/json",
     };
 

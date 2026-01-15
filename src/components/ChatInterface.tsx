@@ -31,6 +31,7 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
   const [isLoading, setIsLoading] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [hasProcessedQuestions, setHasProcessedQuestions] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -41,8 +42,88 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
       setMessages([]);
       setAttachedFiles([]);
       setInput("");
+      setHasProcessedQuestions(false);
     }
   }, [resetTrigger]);
+
+  // Auto-process when questions template is uploaded
+  useEffect(() => {
+    const autoProcessQuestions = async () => {
+      // Only auto-process if:
+      // 1. Questions template exists
+      // 2. Documents are uploaded
+      // 3. Haven't already processed these questions
+      // 4. Not currently loading
+      if (questionsTemplate && questionsTemplate.length > 0 &&
+          documents.length > 0 &&
+          !hasProcessedQuestions &&
+          !isLoading) {
+
+        console.log("Auto-processing questions template...");
+        setHasProcessedQuestions(true);
+
+        // Create a user message indicating batch processing
+        const userMessage: Message = {
+          id: Date.now().toString(),
+          role: "user",
+          content: `Processing ${questionsTemplate.length} questions from uploaded template...`,
+        };
+
+        setMessages((prev) => [...prev, userMessage]);
+        setIsLoading(true);
+
+        try {
+          const allFiles = documents.map((doc) => ({
+            fileId: doc.id,
+            fileName: doc.name,
+            content: doc.content,
+            isJson: doc.isJson
+          }));
+
+          const { data, error } = await supabase.functions.invoke("ask-question", {
+            body: {
+              question: "Please process all questions from the uploaded template systematically.",
+              files: allFiles,
+              customPrompt: customPrompt,
+              questionsTemplate: questionsTemplate,
+              generateReport: true,
+            },
+          });
+
+          if (error) throw error;
+
+          const assistantMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            role: "assistant",
+            content: data.answer,
+          };
+
+          setMessages((prev) => [...prev, assistantMessage]);
+
+          if (data.reportHtml) {
+            onReportGenerated(data.reportHtml, data.reportData);
+          }
+
+          toast({
+            title: "Questions Processed",
+            description: `Successfully answered ${questionsTemplate.length} questions`,
+          });
+        } catch (error) {
+          console.error("Auto-process error:", error);
+          toast({
+            title: "Error",
+            description: error instanceof Error ? error.message : "Failed to process questions",
+            variant: "destructive",
+          });
+          setHasProcessedQuestions(false); // Allow retry
+        } finally {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    autoProcessQuestions();
+  }, [questionsTemplate, documents, hasProcessedQuestions, isLoading]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -57,13 +138,14 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
       const name = file.name.toLowerCase();
       const isPdf = type === "application/pdf" || name.endsWith(".pdf");
       const isJson = type === "application/json" || name.endsWith(".json");
-      return isPdf || isJson;
+      const isTxt = type === "text/plain" || name.endsWith(".txt");
+      return isPdf || isJson || isTxt;
     });
 
     if (validFiles.length !== files.length) {
       toast({
         title: "Invalid file type",
-        description: "Only PDF and JSON files are supported",
+        description: "Only PDF, JSON, and TXT files are supported",
         variant: "destructive",
       });
     }
@@ -299,7 +381,7 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
             <input
               ref={fileInputRef}
               type="file"
-              accept=".pdf,.json"
+              accept=".pdf,.json,.txt"
               multiple
               onChange={handleFileSelect}
               className="hidden"
@@ -308,7 +390,7 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
               onClick={() => fileInputRef.current?.click()}
               variant="outline"
               size="icon"
-              title="Attach PDF or JSON files"
+              title="Attach PDF, JSON, or TXT files"
               disabled={isLoading || isUploading}
             >
               <Paperclip className="h-4 w-4" />
@@ -318,11 +400,13 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyPress}
               placeholder={
-                documents.length === 0 && attachedFiles.length === 0
+                questionsTemplate && questionsTemplate.length > 0
+                  ? "Questions template uploaded - will auto-process when documents are ready..."
+                  : documents.length === 0 && attachedFiles.length === 0
                   ? "Upload documents or attach files to ask questions..."
                   : "Ask a question about your documents..."
               }
-              disabled={isLoading || isUploading}
+              disabled={isLoading || isUploading || (questionsTemplate && questionsTemplate.length > 0)}
               className="flex-1 min-h-[80px] max-h-[200px] resize-none"
               rows={3}
             />

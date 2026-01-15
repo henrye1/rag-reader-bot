@@ -43,14 +43,23 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
         const name = file.name.toLowerCase();
         const isPdf = type === "application/pdf" || name.endsWith(".pdf");
         const isJson = type === "application/json" || name.endsWith(".json");
-        return isPdf || isJson;
+        const isTxt = type === "text/plain" || name.endsWith(".txt");
+        const isWord = type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+                       type === "application/msword" ||
+                       name.endsWith(".docx") ||
+                       name.endsWith(".doc");
+        return isPdf || isJson || isTxt || isWord;
       });
 
       const validFiles = files.filter((file) => {
         const type = file.type;
         const name = file.name.toLowerCase();
         return (type === "application/pdf" || name.endsWith(".pdf") ||
-                type === "application/json" || name.endsWith(".json"));
+                type === "application/json" || name.endsWith(".json") ||
+                type === "text/plain" || name.endsWith(".txt") ||
+                type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+                type === "application/msword" ||
+                name.endsWith(".docx") || name.endsWith(".doc"));
       });
 
       const oversizedFiles = validFiles.filter(f => f.size > MAX_FILE_SIZE_BYTES);
@@ -68,7 +77,7 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
       } else {
         toast({
           title: "Invalid file type",
-          description: "Please upload PDF or JSON files",
+          description: "Please upload PDF, JSON, TXT, or Word (.doc, .docx) files",
           variant: "destructive",
         });
       }
@@ -83,7 +92,11 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
         const type = file.type;
         const name = file.name.toLowerCase();
         return (type === "application/pdf" || name.endsWith(".pdf") ||
-                type === "application/json" || name.endsWith(".json"));
+                type === "application/json" || name.endsWith(".json") ||
+                type === "text/plain" || name.endsWith(".txt") ||
+                type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+                type === "application/msword" ||
+                name.endsWith(".docx") || name.endsWith(".doc"));
       });
 
       const oversizedFiles = validFiles.filter(f => f.size > MAX_FILE_SIZE_BYTES);
@@ -101,7 +114,7 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
       } else if (files.length > 0) {
         toast({
           title: "Invalid file type",
-          description: "Please upload PDF or JSON files",
+          description: "Please upload PDF, JSON, TXT, or Word (.doc, .docx) files",
           variant: "destructive",
         });
       }
@@ -167,7 +180,7 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
     <Card className="shadow-soft">
       <CardHeader>
         <CardTitle>Step 1: Upload Reference Documents</CardTitle>
-        <CardDescription>Upload PDF or JSON files to query against</CardDescription>
+        <CardDescription>Upload PDF, JSON, TXT, or Word documents to query against</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div
@@ -189,11 +202,11 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
             </div>
             <div>
               <p className="font-medium text-foreground">Drop your files here</p>
-              <p className="text-sm text-muted-foreground mt-1">PDF or JSON files • or click to browse</p>
+              <p className="text-sm text-muted-foreground mt-1">PDF, JSON, TXT, or Word files • or click to browse</p>
             </div>
             <input
               type="file"
-              accept=".pdf,.json"
+              accept=".pdf,.json,.txt,.doc,.docx,application/pdf,application/json,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
               multiple
               onChange={handleFileInput}
               className="hidden"

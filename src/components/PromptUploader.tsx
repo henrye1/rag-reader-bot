@@ -22,11 +22,24 @@ export const PromptUploader = ({ customPrompt, promptFileName, onPromptLoaded, o
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const validTypes = ["text/plain", "application/pdf"];
-    if (!validTypes.includes(file.type)) {
+    const validTypes = [
+      "text/plain",
+      "application/pdf",
+      "application/json",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/msword"
+    ];
+    const isValidType = validTypes.includes(file.type) ||
+                        file.name.endsWith('.txt') ||
+                        file.name.endsWith('.pdf') ||
+                        file.name.endsWith('.json') ||
+                        file.name.endsWith('.docx') ||
+                        file.name.endsWith('.doc');
+
+    if (!isValidType) {
       toast({
         title: "Invalid file type",
-        description: "Please upload a text file (.txt) or PDF file (.pdf)",
+        description: "Please upload a text (.txt), JSON, PDF, or Word (.doc, .docx) file",
         variant: "destructive",
       });
       return;
@@ -34,6 +47,8 @@ export const PromptUploader = ({ customPrompt, promptFileName, onPromptLoaded, o
 
     setIsUploading(true);
     try {
+      console.log("Uploading prompt file:", file.name, "Type:", file.type, "Size:", file.size);
+
       const formData = new FormData();
       formData.append("file", file);
 
@@ -41,19 +56,36 @@ export const PromptUploader = ({ customPrompt, promptFileName, onPromptLoaded, o
         body: formData,
       });
 
-      if (error) throw error;
+      console.log("Upload response:", { data, error });
+
+      if (error) {
+        console.error("Supabase function error:", error);
+        throw error;
+      }
+
+      if (!data || !data.promptText) {
+        throw new Error("No prompt text returned from server");
+      }
 
       onPromptLoaded(data.promptText, file.name);
-      
+
       toast({
         title: "Success",
         description: "Custom prompt loaded successfully!",
       });
     } catch (error) {
       console.error("Prompt upload error:", error);
+
+      let errorMessage = "Failed to upload prompt document";
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'object' && error !== null && 'message' in error) {
+        errorMessage = String((error as any).message);
+      }
+
       toast({
         title: "Upload failed",
-        description: error instanceof Error ? error.message : "Failed to upload prompt document",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
@@ -68,7 +100,7 @@ export const PromptUploader = ({ customPrompt, promptFileName, onPromptLoaded, o
     <Card className="shadow-soft">
       <CardHeader>
         <CardTitle>Step 2: Import Custom Prompt (Optional)</CardTitle>
-        <CardDescription>Upload a custom prompt to override the default domain specialist prompt</CardDescription>
+        <CardDescription>Upload a custom prompt file (TXT, JSON, PDF, or Word) to override the default domain specialist prompt</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {promptFileName ? (
@@ -97,12 +129,12 @@ export const PromptUploader = ({ customPrompt, promptFileName, onPromptLoaded, o
                 </div>
                 <div>
                   <p className="font-medium text-foreground">Upload Custom Prompt</p>
-                  <p className="text-sm text-muted-foreground mt-1">TXT or PDF files</p>
+                  <p className="text-sm text-muted-foreground mt-1">TXT, JSON, PDF, or Word files</p>
                 </div>
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".txt,.pdf,text/plain,application/pdf"
+                  accept=".txt,.pdf,.json,.doc,.docx,text/plain,application/pdf,application/json,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                   onChange={handleFileUpload}
                   className="hidden"
                   id="prompt-upload"

@@ -24,24 +24,40 @@ serve(async (req) => {
 
     console.log(`Asking question about ${files.length} file(s): ${question}`);
     console.log(`Generate report: ${generateReport}`);
+    console.log(`Custom prompt provided: ${customPrompt ? 'YES' : 'NO'}`);
+    console.log(`Questions template provided: ${questionsTemplate ? 'YES (' + questionsTemplate.length + ' questions)' : 'NO'}`);
     console.log(`Files being sent:`, files.map((f: any) => ({ fileId: f.fileId, fileName: f.fileName, isJson: f.isJson })));
 
     // Build the request with file references and question
     const parts = [];
 
-    // Add file references (PDFs) or content (JSON)
+    // Add file references (PDFs, Word docs) or content (JSON, TXT)
     for (const file of files) {
-      if (file.isJson && file.content) {
-        // For JSON files, add the content as text
+      // Check if file has content (JSON or TXT files)
+      const hasDirectContent = file.content && (file.fileId?.startsWith('json-') || file.fileId?.startsWith('txt-'));
+
+      if (hasDirectContent) {
+        // For JSON and TXT files, add the content as text
+        const fileType = file.fileId?.startsWith('json-') ? 'JSON' : 'TXT';
         parts.push({
-          text: `JSON Document (${file.fileId}):\n${file.content}`,
+          text: `${fileType} Document (${file.fileName || file.fileId}):\n${file.content}`,
         });
       } else {
-        // For PDF files, use file_data reference
+        // For PDF and Word files, use file_data reference
+        // Determine mime type from file name or ID
+        let mimeType = "application/pdf";
+        if (file.fileName) {
+          if (file.fileName.endsWith(".docx")) {
+            mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+          } else if (file.fileName.endsWith(".doc")) {
+            mimeType = "application/msword";
+          }
+        }
+
         parts.push({
           file_data: {
             file_uri: `https://generativelanguage.googleapis.com/v1beta/${file.fileId}`,
-            mime_type: "application/pdf",
+            mime_type: mimeType,
           },
         });
       }
@@ -236,6 +252,21 @@ Before submitting your response, you MUST:
       text: finalPrompt,
     });
 
+    console.log("=== PROMPT BEING SENT TO GEMINI ===");
+    console.log("Prompt length:", finalPrompt.length, "characters");
+    console.log("First 500 chars:", finalPrompt.substring(0, 500));
+    console.log("Number of parts (files + prompt):", parts.length);
+    console.log("Parts breakdown:");
+    parts.forEach((part, idx) => {
+      if (part.file_data) {
+        console.log(`  Part ${idx + 1}: FILE - ${part.file_data.mime_type} - ${part.file_data.file_uri}`);
+      } else if (part.text) {
+        const preview = part.text.substring(0, 100).replace(/\n/g, ' ');
+        console.log(`  Part ${idx + 1}: TEXT - ${preview}...`);
+      }
+    });
+    console.log("===================================");
+
     // Make request to Gemini API with timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
@@ -243,7 +274,7 @@ Before submitting your response, you MUST:
     let response;
     try {
       response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GOOGLE_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GOOGLE_API_KEY}`,
         {
           method: "POST",
           headers: {
@@ -363,7 +394,7 @@ Respond with ONLY the JSON object, no additional text.`;
 
   try {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

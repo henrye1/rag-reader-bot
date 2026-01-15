@@ -22,13 +22,24 @@ export const QuestionsUploader = ({ questionsTemplate, questionsFileName, onQues
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const validTypes = ["application/json", "application/pdf"];
-    const isValidType = validTypes.includes(file.type) || file.name.endsWith('.json') || file.name.endsWith('.pdf');
-    
+    const validTypes = [
+      "application/json",
+      "application/pdf",
+      "text/plain",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/msword"
+    ];
+    const isValidType = validTypes.includes(file.type) ||
+                        file.name.endsWith('.json') ||
+                        file.name.endsWith('.pdf') ||
+                        file.name.endsWith('.txt') ||
+                        file.name.endsWith('.docx') ||
+                        file.name.endsWith('.doc');
+
     if (!isValidType) {
       toast({
         title: "Invalid file type",
-        description: "Please upload a JSON or PDF file",
+        description: "Please upload a JSON, PDF, TXT, or Word (.doc, .docx) file",
         variant: "destructive",
       });
       return;
@@ -83,7 +94,7 @@ export const QuestionsUploader = ({ questionsTemplate, questionsFileName, onQues
       <CardHeader>
         <CardTitle>Step 3: Ask Questions</CardTitle>
         <CardDescription>
-          Ask questions directly in the chat below, or optionally upload a batch of questions (PDF or JSON) for processing
+          Ask questions in the chat below, OR upload a questionnaire template (JSON, PDF, TXT, or Word) which will be automatically processed when documents are ready
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -115,12 +126,12 @@ export const QuestionsUploader = ({ questionsTemplate, questionsFileName, onQues
                 </div>
                 <div>
                   <p className="font-medium text-foreground">Upload Questions Template</p>
-                  <p className="text-sm text-muted-foreground mt-1">JSON or PDF files with questions</p>
+                  <p className="text-sm text-muted-foreground mt-1">JSON, PDF, TXT, or Word files with questions</p>
                 </div>
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".json,.pdf,application/json,application/pdf"
+                  accept=".json,.pdf,.txt,.doc,.docx,application/json,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                   onChange={handleFileUpload}
                   className="hidden"
                   id="questions-upload"
