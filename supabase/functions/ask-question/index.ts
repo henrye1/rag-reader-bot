@@ -154,8 +154,13 @@ You have access to:
 
     // If questions template is provided, use it to structure the response
     if (questionsTemplate && Array.isArray(questionsTemplate) && questionsTemplate.length > 0) {
-      // Start with custom prompt as guardrails, or use default domain specialist prompt
-      finalPrompt = customPrompt || defaultPrompt;
+      // Start with the default domain specialist prompt as base instructions
+      finalPrompt = defaultPrompt;
+
+      // If expert knowledge is provided, add it as reference material for the assessment
+      if (customPrompt) {
+        finalPrompt += `\n\n## EXPERT KNOWLEDGE / ASSESSMENT FRAMEWORK:\nThe following expert knowledge document contains the assessment framework, requirements, checklists, and methodology you should use to evaluate the client documentation. Use this as your reference for what constitutes compliance, what gaps to look for, and what recommendations to make:\n\n${customPrompt}\n\n`
+      }
       
       finalPrompt += documentsInstruction;
       
@@ -198,8 +203,13 @@ For EACH question above, you must:
 - If you cannot find information in the documents, explicitly say so - do not use general knowledge`;
     } else {
       // No questions template - use standard prompt with user's question
-      finalPrompt = customPrompt || defaultPrompt;
-      
+      finalPrompt = defaultPrompt;
+
+      // If expert knowledge is provided, add it as reference material
+      if (customPrompt) {
+        finalPrompt += `\n\n## EXPERT KNOWLEDGE / ASSESSMENT FRAMEWORK:\nThe following expert knowledge document contains the assessment framework, requirements, and methodology you should use when analyzing the client documentation:\n\n${customPrompt}\n\n`;
+      }
+
       finalPrompt += documentsInstruction;
       
       finalPrompt += `## USER QUESTION:\n${question}\n\nINSTRUCTIONS FOR YOUR RESPONSE:

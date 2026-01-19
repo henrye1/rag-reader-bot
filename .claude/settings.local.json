@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(powershell -Command:*)",
+      "Bash(npx supabase functions deploy:*)",
+      "Bash(npx supabase:*)"
+    ]
+  }
+}

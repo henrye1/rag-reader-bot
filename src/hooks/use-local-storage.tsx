@@ -23,13 +23,24 @@ export function useLocalStorage<T>(key: string, initialValue: T) {
     try {
       // Allow value to be a function so we have the same API as useState
       const valueToStore = value instanceof Function ? value(storedValue) : value;
-      
+
       // Save state
       setStoredValue(valueToStore);
-      
+
       // Save to local storage
       if (typeof window !== 'undefined') {
-        window.localStorage.setItem(key, JSON.stringify(valueToStore));
+        try {
+          window.localStorage.setItem(key, JSON.stringify(valueToStore));
+        } catch (storageError) {
+          // Handle quota exceeded error
+          if (storageError instanceof Error &&
+              (storageError.name === 'QuotaExceededError' ||
+               storageError.message.includes('quota'))) {
+            console.error(`localStorage quota exceeded for key "${key}". Data saved to state only.`);
+          } else {
+            throw storageError;
+          }
+        }
       }
     } catch (error) {
       console.warn(`Error setting localStorage key "${key}":`, error);

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { FileUpload } from "@/components/FileUpload";
 import { ChatInterface } from "@/components/ChatInterface";
 import { DocumentList } from "@/components/DocumentList";
@@ -15,21 +15,46 @@ export interface UploadedDocument {
   id: string;
   name: string;
   uploadedAt: Date;
-  content?: string; // For JSON files
+  content?: string; // For JSON/TXT files - stored in memory, not localStorage
   isJson?: boolean;
 }
 
+// In-memory content store to avoid localStorage quota issues with large files
+const contentStore = new Map<string, string>();
+
 const Index = () => {
-  const [documents, setDocuments] = useLocalStorage<UploadedDocument[]>("documents", []);
+  // Store only document metadata (without content) in localStorage
+  const [documentsMeta, setDocumentsMeta] = useLocalStorage<Omit<UploadedDocument, 'content'>[]>("documentsMeta", []);
+  // Keep full documents with content in state (memory only)
+  const [documents, setDocuments] = useState<UploadedDocument[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [generatedReport, setGeneratedReport] = useLocalStorage<string | null>("generatedReport", null);
   const [reportData, setReportData] = useLocalStorage<any>("reportData", null);
-  const [customPrompt, setCustomPrompt] = useLocalStorage<string | null>("customPrompt", null);
+  // Store large expert knowledge content in memory only (not localStorage)
+  const [customPrompt, setCustomPrompt] = useState<string | null>(null);
   const [promptFileName, setPromptFileName] = useLocalStorage<string | null>("promptFileName", null);
-  const [questionsTemplate, setQuestionsTemplate] = useLocalStorage<any[] | null>("questionsTemplate", null);
+  // Store questions template in memory to avoid localStorage quota issues
+  const [questionsTemplate, setQuestionsTemplate] = useState<any[] | null>(null);
   const [questionsFileName, setQuestionsFileName] = useLocalStorage<string | null>("questionsFileName", null);
   const [resetTrigger, setResetTrigger] = useState(0);
   const { toast } = useToast();
+
+  // Sync documents from metadata on mount (content won't persist but metadata will)
+  useEffect(() => {
+    // Clear old localStorage keys if they exist (migration from old storage format)
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem('documents');
+      window.localStorage.removeItem('customPrompt');
+      window.localStorage.removeItem('questionsTemplate');
+    }
+
+    // Restore documents from metadata - content will be empty for previous session docs
+    const restoredDocs = documentsMeta.map(meta => ({
+      ...meta,
+      content: contentStore.get(meta.id) || undefined,
+    }));
+    setDocuments(restoredDocs);
+  }, []);
 
   const handleFileSelect = (files: File[]) => {
     setSelectedFiles((prev) => [...prev, ...files]);
@@ -44,21 +69,41 @@ const Index = () => {
   };
 
   const handleFileUpload = (docs: UploadedDocument[]) => {
+    // Store content in memory cache
+    docs.forEach(doc => {
+      if (doc.content) {
+        contentStore.set(doc.id, doc.content);
+      }
+    });
+
+    // Update full documents in state (with content)
     setDocuments((prev) => [...prev, ...docs]);
+
+    // Update metadata in localStorage (without content to avoid quota issues)
+    const newMeta = docs.map(({ content, ...meta }) => meta);
+    setDocumentsMeta((prev) => [...prev, ...newMeta]);
+
     setSelectedFiles([]);
   };
 
   const handleRemoveDocument = (id: string) => {
+    contentStore.delete(id);
     setDocuments((prev) => prev.filter((doc) => doc.id !== id));
+    setDocumentsMeta((prev) => prev.filter((doc) => doc.id !== id));
   };
 
   const handleClearAllDocuments = () => {
+    documents.forEach(doc => contentStore.delete(doc.id));
     setDocuments([]);
+    setDocumentsMeta([]);
     setSelectedFiles([]);
   };
 
   const handleResetAll = () => {
+    // Clear content store
+    contentStore.clear();
     setDocuments([]);
+    setDocumentsMeta([]);
     setSelectedFiles([]);
     setCustomPrompt(null);
     setPromptFileName(null);
@@ -110,20 +155,20 @@ const Index = () => {
   const workflowSteps = [
     {
       id: 1,
-      title: "Upload Reference Documents",
-      description: "Upload the documents you want to query",
+      title: "Upload Client Documentation",
+      description: "Upload the documents to be reviewed/assessed",
       completed: documents.length > 0,
     },
     {
       id: 2,
-      title: "Import Custom Prompt (Optional)",
-      description: "Upload a custom prompt file to guide the AI",
+      title: "Upload Expert Knowledge",
+      description: "Upload framework/methodology to guide the assessment",
       completed: !!promptFileName,
     },
     {
       id: 3,
-      title: "Ask Questions",
-      description: "Ask in the chat or optionally batch upload",
+      title: "Upload Assessment Questions",
+      description: "Upload questionnaire or ask questions in chat",
       completed: !!questionsFileName || false,
     },
   ];

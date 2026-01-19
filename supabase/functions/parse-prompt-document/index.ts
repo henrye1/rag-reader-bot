@@ -39,9 +39,10 @@ serve(async (req) => {
     // For JSON files - read and extract text content
     else if (file.type === "application/json" || file.name.endsWith(".json")) {
       const jsonContent = await file.text();
+      console.log(`JSON file size: ${jsonContent.length} characters`);
       try {
         const parsed = JSON.parse(jsonContent);
-        // If JSON has a "prompt" or "text" field, use that; otherwise stringify the whole object
+        // If JSON has a "prompt" or "text" field, use that
         if (parsed.prompt) {
           promptText = parsed.prompt;
         } else if (parsed.text) {
@@ -50,12 +51,17 @@ serve(async (req) => {
           promptText = parsed.content;
         } else if (typeof parsed === 'string') {
           promptText = parsed;
+        } else if (parsed.document) {
+          // Handle structured document format (like IFRS9 Agent)
+          // Convert the document structure to readable text
+          promptText = JSON.stringify(parsed, null, 2);
         } else {
           // For other JSON structures, stringify with formatting
           promptText = JSON.stringify(parsed, null, 2);
         }
-        console.log("Extracted text from JSON file");
+        console.log(`Extracted text from JSON file, length: ${promptText.length}`);
       } catch (e) {
+        console.error("JSON parse error:", e);
         throw new Error("Invalid JSON file");
       }
     }

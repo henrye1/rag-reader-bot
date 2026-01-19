@@ -99,8 +99,8 @@ export const PromptUploader = ({ customPrompt, promptFileName, onPromptLoaded, o
   return (
     <Card className="shadow-soft">
       <CardHeader>
-        <CardTitle>Step 2: Import Custom Prompt (Optional)</CardTitle>
-        <CardDescription>Upload a custom prompt file (TXT, JSON, PDF, or Word) to override the default domain specialist prompt</CardDescription>
+        <CardTitle>Step 2: Upload Expert Knowledge</CardTitle>
+        <CardDescription>Upload the assessment framework/methodology (e.g., IFRS9, Basel) that guides how to evaluate the client documentation</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {promptFileName ? (
@@ -109,7 +109,7 @@ export const PromptUploader = ({ customPrompt, promptFileName, onPromptLoaded, o
               <FileText className="h-5 w-5 text-primary" />
               <div>
                 <p className="font-medium text-sm">{promptFileName}</p>
-                <Badge variant="secondary" className="mt-1">Custom Prompt Active</Badge>
+                <Badge variant="secondary" className="mt-1">Expert Knowledge Loaded</Badge>
               </div>
             </div>
             <Button
@@ -128,8 +128,8 @@ export const PromptUploader = ({ customPrompt, promptFileName, onPromptLoaded, o
                   <Upload className="h-6 w-6 text-primary" />
                 </div>
                 <div>
-                  <p className="font-medium text-foreground">Upload Custom Prompt</p>
-                  <p className="text-sm text-muted-foreground mt-1">TXT, JSON, PDF, or Word files</p>
+                  <p className="font-medium text-foreground">Upload Expert Knowledge</p>
+                  <p className="text-sm text-muted-foreground mt-1">Assessment framework (TXT, JSON, PDF, or Word)</p>
                 </div>
                 <input
                   ref={fileInputRef}

@@ -92,9 +92,9 @@ export const QuestionsUploader = ({ questionsTemplate, questionsFileName, onQues
   return (
     <Card className="shadow-soft">
       <CardHeader>
-        <CardTitle>Step 3: Ask Questions</CardTitle>
+        <CardTitle>Step 3: Upload Assessment Questions</CardTitle>
         <CardDescription>
-          Ask questions in the chat below, OR upload a questionnaire template (JSON, PDF, TXT, or Word) which will be automatically processed when documents are ready
+          Upload the questionnaire/assessment template that the expert should answer based on the client documentation
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -105,7 +105,7 @@ export const QuestionsUploader = ({ questionsTemplate, questionsFileName, onQues
               <div>
                 <p className="font-medium text-sm">{questionsFileName}</p>
                 <Badge variant="secondary" className="mt-1">
-                  {questionsTemplate?.length || 0} questions loaded
+                  {questionsTemplate?.length || 0} assessment questions loaded
                 </Badge>
               </div>
             </div>
@@ -125,8 +125,8 @@ export const QuestionsUploader = ({ questionsTemplate, questionsFileName, onQues
                   <Upload className="h-6 w-6 text-primary" />
                 </div>
                 <div>
-                  <p className="font-medium text-foreground">Upload Questions Template</p>
-                  <p className="text-sm text-muted-foreground mt-1">JSON, PDF, TXT, or Word files with questions</p>
+                  <p className="font-medium text-foreground">Upload Assessment Questions</p>
+                  <p className="text-sm text-muted-foreground mt-1">Questionnaire template (JSON, PDF, TXT, or Word)</p>
                 </div>
                 <input
                   ref={fileInputRef}

@@ -38,6 +38,8 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
       setIsDragging(false);
 
       const files = Array.from(e.dataTransfer.files);
+      console.log("Files dropped:", files.map(f => ({ name: f.name, type: f.type, size: f.size })));
+
       const validFile = files.find((file) => {
         const type = file.type;
         const name = file.name.toLowerCase();
@@ -48,6 +50,7 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
                        type === "application/msword" ||
                        name.endsWith(".docx") ||
                        name.endsWith(".doc");
+        console.log(`File validation: ${name}, type: ${type}, isPdf: ${isPdf}, isJson: ${isJson}, isTxt: ${isTxt}, isWord: ${isWord}`);
         return isPdf || isJson || isTxt || isWord;
       });
 
@@ -88,19 +91,26 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
   const handleFileInput = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files || []);
+      console.log("Files selected via input:", files.map(f => ({ name: f.name, type: f.type, size: f.size })));
+
       const validFiles = files.filter((file) => {
         const type = file.type;
         const name = file.name.toLowerCase();
-        return (type === "application/pdf" || name.endsWith(".pdf") ||
+        const isValid = (type === "application/pdf" || name.endsWith(".pdf") ||
                 type === "application/json" || name.endsWith(".json") ||
                 type === "text/plain" || name.endsWith(".txt") ||
                 type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
                 type === "application/msword" ||
                 name.endsWith(".docx") || name.endsWith(".doc"));
+        console.log(`File "${file.name}" validation: type="${type}", isValid=${isValid}`);
+        return isValid;
       });
+
+      console.log("Valid files count:", validFiles.length);
 
       const oversizedFiles = validFiles.filter(f => f.size > MAX_FILE_SIZE_BYTES);
       if (oversizedFiles.length > 0) {
+        console.log("Oversized files detected:", oversizedFiles.map(f => f.name));
         toast({
           title: "Files too large",
           description: `Maximum file size is ${MAX_FILE_SIZE_MB} MB per file`,
@@ -110,8 +120,10 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
       }
 
       if (validFiles.length > 0) {
+        console.log("Calling onFileSelect with valid files");
         onFileSelect(validFiles);
       } else if (files.length > 0) {
+        console.log("No valid files found, showing error toast");
         toast({
           title: "Invalid file type",
           description: "Please upload PDF, JSON, TXT, or Word (.doc, .docx) files",
@@ -127,9 +139,11 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
 
     setIsUploading(true);
     const uploadedDocs: UploadedDocument[] = [];
-    
+
     try {
       for (const file of selectedFiles) {
+        console.log(`Uploading file: ${file.name}, size: ${file.size}, type: ${file.type}`);
+
         const formData = new FormData();
         formData.append("file", file);
 
@@ -137,15 +151,29 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
           body: formData,
         });
 
-        if (error) throw error;
+        console.log("Upload response:", { data, error });
+
+        if (error) {
+          console.error("Supabase function error:", error);
+          throw error;
+        }
+
+        if (!data || !data.fileId) {
+          console.error("Invalid response from upload:", data);
+          throw new Error("Invalid response from server - no fileId returned");
+        }
+
+        const isTxtOrJson = data.fileId?.startsWith('json-') || data.fileId?.startsWith('txt-');
 
         uploadedDocs.push({
           id: data.fileId,
           name: file.name,
           uploadedAt: new Date(),
           content: data.content,
-          isJson: data.fileId?.startsWith('json-'),
+          isJson: isTxtOrJson,
         });
+
+        console.log(`File uploaded successfully: ${file.name}, fileId: ${data.fileId}`);
       }
 
       onUploadComplete(uploadedDocs);
@@ -155,8 +183,8 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
         description: `${uploadedDocs.length} document(s) uploaded and ready for questions!`,
       });
     } catch (error) {
-      console.error("Upload error:", error);
-      
+      console.error("Upload error details:", error);
+
       let errorMessage = "Failed to upload documents";
       if (error instanceof Error) {
         if (error.message.includes("Failed to send a request")) {
@@ -164,8 +192,10 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
         } else {
           errorMessage = error.message;
         }
+      } else if (typeof error === 'object' && error !== null) {
+        errorMessage = JSON.stringify(error);
       }
-      
+
       toast({
         title: "Upload failed",
         description: errorMessage,
@@ -179,8 +209,8 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
   return (
     <Card className="shadow-soft">
       <CardHeader>
-        <CardTitle>Step 1: Upload Reference Documents</CardTitle>
-        <CardDescription>Upload PDF, JSON, TXT, or Word documents to query against</CardDescription>
+        <CardTitle>Step 1: Upload Client Documentation</CardTitle>
+        <CardDescription>Upload the client documents to be reviewed/assessed (PDF, JSON, TXT, or Word)</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div
