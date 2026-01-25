@@ -132,7 +132,7 @@ serve(async (req) => {
 
       // Extract text from the document using Gemini
       const extractResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GOOGLE_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GOOGLE_API_KEY}`,
         {
           method: "POST",
           headers: {

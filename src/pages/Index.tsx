@@ -6,54 +6,93 @@ import { ReportViewer } from "@/components/ReportViewer";
 import { WorkflowSteps } from "@/components/WorkflowSteps";
 import { PromptUploader } from "@/components/PromptUploader";
 import { QuestionsUploader } from "@/components/QuestionsUploader";
+import { SkillSelector } from "@/components/SkillSelector";
+import { SkillManager } from "@/components/SkillManager";
+import { RagConfigPanel } from "@/components/RagConfigPanel";
+import { RetrievalConfigPanel } from "@/components/RetrievalConfigPanel";
+import { RagAssistantDialog } from "@/components/RagAssistantDialog";
+import { IngestionConfigPanel } from "@/components/IngestionConfigPanel";
+import { ReprocessDialog } from "@/components/ReprocessDialog";
+import { OutputFormatPanel, DEFAULT_OUTPUT_FORMAT, type OutputFormatConfig } from "@/components/OutputFormatPanel";
 import { FileText, Trash2 } from "lucide-react";
+import { HelpDialog } from "@/components/HelpDialog";
 import { Button } from "@/components/ui/button";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import type { Skill } from "@/integrations/supabase/types";
+import type { RagConfig, IngestionConfig, RetrievalConfig } from "@/integrations/supabase/rag-types";
+import { DEFAULT_RAG_CONFIG, DEFAULT_INGESTION_CONFIG, DEFAULT_RETRIEVAL_CONFIG } from "@/integrations/supabase/rag-types";
 
 export interface UploadedDocument {
-  id: string;
+  id: string;              // Local ID for UI tracking
+  documentId: string;      // Supabase document UUID
   name: string;
   uploadedAt: Date;
-  content?: string; // For JSON/TXT files - stored in memory, not localStorage
-  isJson?: boolean;
+  status: 'processing' | 'ready' | 'error';
+  totalChunks?: number;
+  totalCharacters?: number;
+  errorMessage?: string;
+  ingestionConfig?: IngestionConfig | null;
+  hasOriginalText?: boolean;
 }
 
-// In-memory content store to avoid localStorage quota issues with large files
-const contentStore = new Map<string, string>();
-
 const Index = () => {
-  // Store only document metadata (without content) in localStorage
-  const [documentsMeta, setDocumentsMeta] = useLocalStorage<Omit<UploadedDocument, 'content'>[]>("documentsMeta", []);
-  // Keep full documents with content in state (memory only)
-  const [documents, setDocuments] = useState<UploadedDocument[]>([]);
+  // Store document metadata in localStorage
+  const [documents, setDocuments] = useLocalStorage<UploadedDocument[]>("documents", []);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [generatedReport, setGeneratedReport] = useLocalStorage<string | null>("generatedReport", null);
-  const [reportData, setReportData] = useLocalStorage<any>("reportData", null);
-  // Store large expert knowledge content in memory only (not localStorage)
+  const [reportData, setReportData] = useLocalStorage<Record<string, unknown> | null>("reportData", null);
   const [customPrompt, setCustomPrompt] = useState<string | null>(null);
   const [promptFileName, setPromptFileName] = useLocalStorage<string | null>("promptFileName", null);
-  // Store questions template in memory to avoid localStorage quota issues
-  const [questionsTemplate, setQuestionsTemplate] = useState<any[] | null>(null);
+  const [questionsTemplate, setQuestionsTemplate] = useState<Record<string, unknown>[] | null>(null);
   const [questionsFileName, setQuestionsFileName] = useLocalStorage<string | null>("questionsFileName", null);
   const [resetTrigger, setResetTrigger] = useState(0);
+  const [suggestedQuestion, setSuggestedQuestion] = useState<string | null>(null);
+
+  // Skills state
+  const [selectedSkill, setSelectedSkill] = useLocalStorage<Skill | null>("selectedSkill", null);
+  const [showSkillManager, setShowSkillManager] = useState(false);
+  const [showCustomPromptUpload, setShowCustomPromptUpload] = useState(false);
+  const [skillsRefreshKey, setSkillsRefreshKey] = useState(0);
+
+  // RAG Config state (query-time)
+  const [ragConfig, setRagConfig] = useLocalStorage<Omit<RagConfig, 'id' | 'created_at'>>(
+    "ragConfig",
+    DEFAULT_RAG_CONFIG
+  );
+  const [showRagAssistant, setShowRagAssistant] = useState(false);
+
+  // Reprocess dialog state
+  const [showReprocessDialog, setShowReprocessDialog] = useState(false);
+  const [reprocessDocument, setReprocessDocument] = useState<UploadedDocument | null>(null);
+
+  // Ingestion Config state (upload-time)
+  const [ingestionConfig, setIngestionConfig] = useLocalStorage<IngestionConfig>(
+    "ingestionConfig",
+    DEFAULT_INGESTION_CONFIG
+  );
+
+  // Retrieval Config state (retrieval-time)
+  const [retrievalConfig, setRetrievalConfig] = useLocalStorage<RetrievalConfig>(
+    "retrievalConfig",
+    DEFAULT_RETRIEVAL_CONFIG
+  );
+
+  // Output Format state
+  const [outputFormat, setOutputFormat] = useLocalStorage<OutputFormatConfig>(
+    "outputFormat",
+    DEFAULT_OUTPUT_FORMAT
+  );
+
   const { toast } = useToast();
 
-  // Sync documents from metadata on mount (content won't persist but metadata will)
+  // Restore dates from localStorage (they get serialized as strings)
   useEffect(() => {
-    // Clear old localStorage keys if they exist (migration from old storage format)
-    if (typeof window !== 'undefined') {
-      window.localStorage.removeItem('documents');
-      window.localStorage.removeItem('customPrompt');
-      window.localStorage.removeItem('questionsTemplate');
-    }
-
-    // Restore documents from metadata - content will be empty for previous session docs
-    const restoredDocs = documentsMeta.map(meta => ({
-      ...meta,
-      content: contentStore.get(meta.id) || undefined,
-    }));
-    setDocuments(restoredDocs);
+    setDocuments(prev => prev.map(doc => ({
+      ...doc,
+      uploadedAt: new Date(doc.uploadedAt)
+    })));
   }, []);
 
   const handleFileSelect = (files: File[]) => {
@@ -69,49 +108,52 @@ const Index = () => {
   };
 
   const handleFileUpload = (docs: UploadedDocument[]) => {
-    // Store content in memory cache
-    docs.forEach(doc => {
-      if (doc.content) {
-        contentStore.set(doc.id, doc.content);
-      }
-    });
-
-    // Update full documents in state (with content)
     setDocuments((prev) => [...prev, ...docs]);
-
-    // Update metadata in localStorage (without content to avoid quota issues)
-    const newMeta = docs.map(({ content, ...meta }) => meta);
-    setDocumentsMeta((prev) => [...prev, ...newMeta]);
-
     setSelectedFiles([]);
   };
 
-  const handleRemoveDocument = (id: string) => {
-    contentStore.delete(id);
+  const handleRemoveDocument = async (id: string) => {
+    const doc = documents.find(d => d.id === id);
+    if (doc?.documentId) {
+      // Delete from Supabase
+      try {
+        await supabase.from('documents').delete().eq('id', doc.documentId);
+      } catch (error) {
+        console.error("Failed to delete document from database:", error);
+      }
+    }
     setDocuments((prev) => prev.filter((doc) => doc.id !== id));
-    setDocumentsMeta((prev) => prev.filter((doc) => doc.id !== id));
   };
 
-  const handleClearAllDocuments = () => {
-    documents.forEach(doc => contentStore.delete(doc.id));
+  const handleClearAllDocuments = async () => {
+    // Delete all documents from Supabase
+    for (const doc of documents) {
+      if (doc.documentId) {
+        try {
+          await supabase.from('documents').delete().eq('id', doc.documentId);
+        } catch (error) {
+          console.error("Failed to delete document:", error);
+        }
+      }
+    }
     setDocuments([]);
-    setDocumentsMeta([]);
     setSelectedFiles([]);
   };
 
-  const handleResetAll = () => {
-    // Clear content store
-    contentStore.clear();
-    setDocuments([]);
-    setDocumentsMeta([]);
-    setSelectedFiles([]);
+  const handleResetAll = async () => {
+    await handleClearAllDocuments();
     setCustomPrompt(null);
     setPromptFileName(null);
     setQuestionsTemplate(null);
     setQuestionsFileName(null);
     setGeneratedReport(null);
     setReportData(null);
-    // Trigger chat reset by incrementing the trigger
+    setSelectedSkill(null);
+    setShowCustomPromptUpload(false);
+    setRagConfig(DEFAULT_RAG_CONFIG);
+    setIngestionConfig(DEFAULT_INGESTION_CONFIG);
+    setRetrievalConfig(DEFAULT_RETRIEVAL_CONFIG);
+    setOutputFormat(DEFAULT_OUTPUT_FORMAT);
     setResetTrigger(prev => prev + 1);
     toast({
       title: "Reset Complete",
@@ -119,7 +161,7 @@ const Index = () => {
     });
   };
 
-  const handleReportGenerated = (html: string, data: any) => {
+  const handleReportGenerated = (html: string, data: Record<string, unknown>) => {
     setGeneratedReport(html);
     setReportData(data);
   };
@@ -138,7 +180,7 @@ const Index = () => {
     });
   };
 
-  const handleQuestionsLoaded = (questions: any[], fileName: string) => {
+  const handleQuestionsLoaded = (questions: Record<string, unknown>[], fileName: string) => {
     setQuestionsTemplate(questions);
     setQuestionsFileName(fileName);
   };
@@ -152,18 +194,80 @@ const Index = () => {
     });
   };
 
+  // Skills handlers
+  const handleSkillSelect = (skill: Skill | null) => {
+    setSelectedSkill(skill);
+    if (skill) {
+      // When a skill is selected, use its prompt content
+      setCustomPrompt(skill.prompt_content);
+      setPromptFileName(null); // Clear uploaded prompt file name
+      setShowCustomPromptUpload(false);
+
+      // If skill has questions template, use it
+      if (skill.questions_template && skill.questions_template.length > 0) {
+        setQuestionsTemplate(skill.questions_template);
+        setQuestionsFileName(`${skill.name} (${skill.questions_template.length} questions)`);
+      }
+
+      toast({
+        title: "Skill Activated",
+        description: `Using "${skill.name}" expert knowledge`,
+      });
+    } else {
+      // When skill is cleared, clear the prompt (unless custom upload is active)
+      if (!showCustomPromptUpload) {
+        setCustomPrompt(null);
+      }
+    }
+  };
+
+  const handleShowCustomUpload = () => {
+    setShowCustomPromptUpload(true);
+    setSelectedSkill(null);
+  };
+
+  const handleSkillsChanged = () => {
+    setSkillsRefreshKey(prev => prev + 1);
+  };
+
+  // Reprocess handlers
+  const handleOpenReprocess = (doc: UploadedDocument) => {
+    setReprocessDocument(doc);
+    setShowReprocessDialog(true);
+  };
+
+  const handleReprocessComplete = (documentId: string, newChunkCount: number) => {
+    setDocuments(prev => prev.map(doc => {
+      if (doc.documentId === documentId) {
+        return {
+          ...doc,
+          totalChunks: newChunkCount,
+          status: 'ready' as const,
+        };
+      }
+      return doc;
+    }));
+    toast({
+      title: "Document Reprocessed",
+      description: `Document now has ${newChunkCount} chunks`,
+    });
+  };
+
+  // Get ready documents for chat
+  const readyDocuments = documents.filter(doc => doc.status === 'ready');
+
   const workflowSteps = [
     {
       id: 1,
       title: "Upload Client Documentation",
       description: "Upload the documents to be reviewed/assessed",
-      completed: documents.length > 0,
+      completed: readyDocuments.length > 0,
     },
     {
       id: 2,
-      title: "Upload Expert Knowledge",
-      description: "Upload framework/methodology to guide the assessment",
-      completed: !!promptFileName,
+      title: "Select Expert Skill",
+      description: "Choose an expert agent or upload custom knowledge",
+      completed: !!selectedSkill || !!promptFileName,
     },
     {
       id: 3,
@@ -185,17 +289,20 @@ const Index = () => {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-foreground">Document Q&A System</h1>
-                <p className="text-sm text-muted-foreground">Structured workflow for document analysis</p>
+                <p className="text-sm text-muted-foreground">RAG-powered document analysis with vector search</p>
               </div>
             </div>
-            <Button
-              onClick={handleResetAll}
-              variant="outline"
-              className="gap-2"
-            >
-              <Trash2 className="h-4 w-4" />
-              Reset All
-            </Button>
+            <div className="flex items-center gap-2">
+              <HelpDialog />
+              <Button
+                onClick={handleResetAll}
+                variant="outline"
+                className="gap-2"
+              >
+                <Trash2 className="h-4 w-4" />
+                Reset All
+              </Button>
+            </div>
           </div>
         </div>
       </header>
@@ -205,10 +312,16 @@ const Index = () => {
         <div className="space-y-6 max-w-7xl mx-auto">
           {/* Workflow Guide */}
           <WorkflowSteps steps={workflowSteps} />
-          
+
           {/* File Upload Section */}
           <div className="grid lg:grid-cols-[400px,1fr] gap-6">
             <aside className="space-y-6">
+              {/* Ingestion Configuration (before upload) */}
+              <IngestionConfigPanel
+                config={ingestionConfig}
+                onConfigChange={setIngestionConfig}
+              />
+
               {/* Step 1: Upload Documents */}
               <FileUpload
                 onFileSelect={handleFileSelect}
@@ -216,20 +329,56 @@ const Index = () => {
                 onUploadComplete={handleFileUpload}
                 onClearSelected={handleClearSelectedFiles}
                 onRemoveFile={handleRemoveFile}
+                ingestionConfig={ingestionConfig}
               />
-              <DocumentList 
-                documents={documents} 
+              <DocumentList
+                documents={documents}
                 onRemove={handleRemoveDocument}
                 onClearAll={handleClearAllDocuments}
+                onReprocess={handleOpenReprocess}
               />
 
-              {/* Step 2: Upload Custom Prompt */}
-              <PromptUploader
-                customPrompt={customPrompt}
-                promptFileName={promptFileName}
-                onPromptLoaded={handlePromptLoaded}
-                onPromptRemoved={handlePromptRemoved}
+              {/* Step 2: Select Expert Skill or Upload Custom Prompt */}
+              <SkillSelector
+                key={skillsRefreshKey}
+                selectedSkill={selectedSkill}
+                onSkillSelect={handleSkillSelect}
+                onManageSkills={() => setShowSkillManager(true)}
+                onUploadCustom={handleShowCustomUpload}
+                onQuestionSelect={setSuggestedQuestion}
               />
+
+              {/* RAG Configuration Panel */}
+              <RagConfigPanel
+                config={ragConfig}
+                onConfigChange={setRagConfig}
+                onOpenAssistant={() => setShowRagAssistant(true)}
+              />
+
+              {/* Retrieval Configuration Panel */}
+              <RetrievalConfigPanel
+                config={retrievalConfig}
+                onConfigChange={setRetrievalConfig}
+              />
+
+              {/* Output Format Configuration Panel */}
+              <OutputFormatPanel
+                config={outputFormat}
+                onConfigChange={setOutputFormat}
+              />
+
+              {/* Custom Prompt Upload (shown when user chooses to upload custom) */}
+              {showCustomPromptUpload && (
+                <PromptUploader
+                  customPrompt={customPrompt}
+                  promptFileName={promptFileName}
+                  onPromptLoaded={handlePromptLoaded}
+                  onPromptRemoved={() => {
+                    handlePromptRemoved();
+                    setShowCustomPromptUpload(false);
+                  }}
+                />
+              )}
 
               {/* Step 3: Upload Questions */}
               <QuestionsUploader
@@ -242,12 +391,17 @@ const Index = () => {
 
             {/* Chat Area */}
             <div className="lg:min-h-[calc(100vh-200px)]">
-              <ChatInterface 
-                documents={documents}
+              <ChatInterface
+                documents={readyDocuments}
                 onReportGenerated={handleReportGenerated}
                 customPrompt={customPrompt}
                 questionsTemplate={questionsTemplate}
                 resetTrigger={resetTrigger}
+                ragConfig={ragConfig}
+                retrievalConfig={retrievalConfig}
+                outputFormat={outputFormat}
+                suggestedQuestion={suggestedQuestion}
+                onSuggestedQuestionUsed={() => setSuggestedQuestion(null)}
                 onClearChat={() => {
                   setGeneratedReport(null);
                   setReportData(null);
@@ -258,13 +412,50 @@ const Index = () => {
 
           {/* Report Viewer - Only show when report is generated */}
           {generatedReport && reportData && (
-            <ReportViewer 
+            <ReportViewer
               reportHtml={generatedReport}
               reportData={reportData}
             />
           )}
         </div>
       </main>
+
+      {/* Skill Manager Dialog */}
+      <SkillManager
+        isOpen={showSkillManager}
+        onClose={() => setShowSkillManager(false)}
+        onSkillsChanged={handleSkillsChanged}
+      />
+
+      {/* RAG Assistant Dialog */}
+      <RagAssistantDialog
+        open={showRagAssistant}
+        onOpenChange={setShowRagAssistant}
+        onApplyConfig={(config, retrievalCfg) => {
+          setRagConfig(config);
+          if (retrievalCfg) {
+            setRetrievalConfig(retrievalCfg);
+          }
+          toast({
+            title: "Configuration Applied",
+            description: `Applied "${config.name}" settings with retrieval optimizations`,
+          });
+        }}
+      />
+
+      {/* Reprocess Document Dialog */}
+      <ReprocessDialog
+        open={showReprocessDialog}
+        onOpenChange={setShowReprocessDialog}
+        document={reprocessDocument ? {
+          id: reprocessDocument.documentId,
+          name: reprocessDocument.name,
+          totalChunks: reprocessDocument.totalChunks || 0,
+          ingestionConfig: reprocessDocument.ingestionConfig,
+          hasOriginalText: reprocessDocument.hasOriginalText,
+        } : null}
+        onReprocessComplete={handleReprocessComplete}
+      />
     </div>
   );
 };

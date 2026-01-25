@@ -1,10 +1,11 @@
 import { useCallback, useState } from "react";
-import { Upload, FileText, Loader2, X } from "lucide-react";
+import { Upload, FileText, Loader2, X, CheckCircle, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import type { UploadedDocument } from "@/pages/Index";
+import type { IngestionConfig } from "@/integrations/supabase/rag-types";
 
 const MAX_FILE_SIZE_MB = 40;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
@@ -15,11 +16,13 @@ interface FileUploadProps {
   onUploadComplete: (docs: UploadedDocument[]) => void;
   onClearSelected: () => void;
   onRemoveFile: (index: number) => void;
+  ingestionConfig?: IngestionConfig;
 }
 
-export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onClearSelected, onRemoveFile }: FileUploadProps) => {
+export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onClearSelected, onRemoveFile, ingestionConfig }: FileUploadProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<Record<string, 'uploading' | 'processing' | 'done' | 'error'>>({});
   const { toast } = useToast();
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -39,20 +42,6 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
 
       const files = Array.from(e.dataTransfer.files);
       console.log("Files dropped:", files.map(f => ({ name: f.name, type: f.type, size: f.size })));
-
-      const validFile = files.find((file) => {
-        const type = file.type;
-        const name = file.name.toLowerCase();
-        const isPdf = type === "application/pdf" || name.endsWith(".pdf");
-        const isJson = type === "application/json" || name.endsWith(".json");
-        const isTxt = type === "text/plain" || name.endsWith(".txt");
-        const isWord = type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-                       type === "application/msword" ||
-                       name.endsWith(".docx") ||
-                       name.endsWith(".doc");
-        console.log(`File validation: ${name}, type: ${type}, isPdf: ${isPdf}, isJson: ${isJson}, isTxt: ${isTxt}, isWord: ${isWord}`);
-        return isPdf || isJson || isTxt || isWord;
-      });
 
       const validFiles = files.filter((file) => {
         const type = file.type;
@@ -96,21 +85,16 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
       const validFiles = files.filter((file) => {
         const type = file.type;
         const name = file.name.toLowerCase();
-        const isValid = (type === "application/pdf" || name.endsWith(".pdf") ||
+        return (type === "application/pdf" || name.endsWith(".pdf") ||
                 type === "application/json" || name.endsWith(".json") ||
                 type === "text/plain" || name.endsWith(".txt") ||
                 type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
                 type === "application/msword" ||
                 name.endsWith(".docx") || name.endsWith(".doc"));
-        console.log(`File "${file.name}" validation: type="${type}", isValid=${isValid}`);
-        return isValid;
       });
-
-      console.log("Valid files count:", validFiles.length);
 
       const oversizedFiles = validFiles.filter(f => f.size > MAX_FILE_SIZE_BYTES);
       if (oversizedFiles.length > 0) {
-        console.log("Oversized files detected:", oversizedFiles.map(f => f.name));
         toast({
           title: "Files too large",
           description: `Maximum file size is ${MAX_FILE_SIZE_MB} MB per file`,
@@ -120,10 +104,8 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
       }
 
       if (validFiles.length > 0) {
-        console.log("Calling onFileSelect with valid files");
         onFileSelect(validFiles);
       } else if (files.length > 0) {
-        console.log("No valid files found, showing error toast");
         toast({
           title: "Invalid file type",
           description: "Please upload PDF, JSON, TXT, or Word (.doc, .docx) files",
@@ -139,13 +121,26 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
 
     setIsUploading(true);
     const uploadedDocs: UploadedDocument[] = [];
+    const newProgress: Record<string, 'uploading' | 'processing' | 'done' | 'error'> = {};
+
+    // Initialize progress for all files
+    selectedFiles.forEach(file => {
+      newProgress[file.name] = 'uploading';
+    });
+    setUploadProgress(newProgress);
 
     try {
       for (const file of selectedFiles) {
         console.log(`Uploading file: ${file.name}, size: ${file.size}, type: ${file.type}`);
 
+        setUploadProgress(prev => ({ ...prev, [file.name]: 'processing' }));
+
         const formData = new FormData();
         formData.append("file", file);
+        // Add ingestion config if provided
+        if (ingestionConfig) {
+          formData.append("ingestionConfig", JSON.stringify(ingestionConfig));
+        }
 
         const { data, error } = await supabase.functions.invoke("upload-document", {
           body: formData,
@@ -155,32 +150,36 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
 
         if (error) {
           console.error("Supabase function error:", error);
+          setUploadProgress(prev => ({ ...prev, [file.name]: 'error' }));
           throw error;
         }
 
-        if (!data || !data.fileId) {
+        if (!data || !data.documentId) {
           console.error("Invalid response from upload:", data);
-          throw new Error("Invalid response from server - no fileId returned");
+          setUploadProgress(prev => ({ ...prev, [file.name]: 'error' }));
+          throw new Error("Invalid response from server - no documentId returned");
         }
 
-        const isTxtOrJson = data.fileId?.startsWith('json-') || data.fileId?.startsWith('txt-');
+        setUploadProgress(prev => ({ ...prev, [file.name]: 'done' }));
 
         uploadedDocs.push({
-          id: data.fileId,
+          id: `doc-${Date.now()}-${file.name}`,
+          documentId: data.documentId,
           name: file.name,
           uploadedAt: new Date(),
-          content: data.content,
-          isJson: isTxtOrJson,
+          status: data.status || 'ready',
+          totalChunks: data.totalChunks,
+          totalCharacters: data.totalCharacters,
         });
 
-        console.log(`File uploaded successfully: ${file.name}, fileId: ${data.fileId}`);
+        console.log(`File uploaded successfully: ${file.name}, documentId: ${data.documentId}, chunks: ${data.totalChunks}`);
       }
 
       onUploadComplete(uploadedDocs);
 
       toast({
         title: "Success",
-        description: `${uploadedDocs.length} document(s) uploaded and ready for questions!`,
+        description: `${uploadedDocs.length} document(s) uploaded and indexed for RAG!`,
       });
     } catch (error) {
       console.error("Upload error details:", error);
@@ -203,6 +202,21 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
       });
     } finally {
       setIsUploading(false);
+      setUploadProgress({});
+    }
+  };
+
+  const getProgressIcon = (status: 'uploading' | 'processing' | 'done' | 'error') => {
+    switch (status) {
+      case 'uploading':
+      case 'processing':
+        return <Loader2 className="h-4 w-4 animate-spin text-primary" />;
+      case 'done':
+        return <CheckCircle className="h-4 w-4 text-green-500" />;
+      case 'error':
+        return <AlertCircle className="h-4 w-4 text-red-500" />;
+      default:
+        return null;
     }
   };
 
@@ -210,7 +224,7 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
     <Card className="shadow-soft">
       <CardHeader>
         <CardTitle>Step 1: Upload Client Documentation</CardTitle>
-        <CardDescription>Upload the client documents to be reviewed/assessed (PDF, JSON, TXT, or Word)</CardDescription>
+        <CardDescription>Upload documents to be chunked, embedded, and indexed for RAG search (PDF, JSON, TXT, or Word)</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div
@@ -262,14 +276,17 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
                       {(file.size / 1024 / 1024).toFixed(2)} MB
                     </p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => onRemoveFile(index)}
-                    aria-label="Remove file"
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
+                  {uploadProgress[file.name] && getProgressIcon(uploadProgress[file.name])}
+                  {!isUploading && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => onRemoveFile(index)}
+                      aria-label="Remove file"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
               ))}
             </div>
@@ -278,6 +295,7 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
                 onClick={onClearSelected}
                 variant="outline"
                 className="flex-1"
+                disabled={isUploading}
               >
                 Clear All
               </Button>
@@ -289,7 +307,7 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
                 {isUploading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Processing...
+                    Processing & Indexing...
                   </>
                 ) : (
                   `Upload ${selectedFiles.length} File(s)`

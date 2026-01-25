@@ -7,20 +7,236 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "13.0.5"
   }
   public: {
     Tables: {
-      [_ in never]: never
+      documents: {
+        Row: {
+          id: string
+          name: string
+          file_type: string
+          original_file_id: string | null
+          total_chunks: number
+          total_characters: number
+          status: 'processing' | 'ready' | 'error'
+          error_message: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          file_type: string
+          original_file_id?: string | null
+          total_chunks?: number
+          total_characters?: number
+          status?: 'processing' | 'ready' | 'error'
+          error_message?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          file_type?: string
+          original_file_id?: string | null
+          total_chunks?: number
+          total_characters?: number
+          status?: 'processing' | 'ready' | 'error'
+          error_message?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      document_chunks: {
+        Row: {
+          id: string
+          document_id: string
+          chunk_index: number
+          content: string
+          token_count: number | null
+          embedding: number[] | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          document_id: string
+          chunk_index: number
+          content: string
+          token_count?: number | null
+          embedding?: number[] | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          document_id?: string
+          chunk_index?: number
+          content?: string
+          token_count?: number | null
+          embedding?: number[] | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_chunks_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      skills: {
+        Row: {
+          id: string
+          user_id: string | null
+          name: string
+          description: string | null
+          category: string
+          icon: string
+          prompt_content: string
+          questions_template: Record<string, unknown>[] | null
+          is_active: boolean
+          is_default: boolean
+          rag_config_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id?: string | null
+          name: string
+          description?: string | null
+          category?: string
+          icon?: string
+          prompt_content: string
+          questions_template?: Record<string, unknown>[] | null
+          is_active?: boolean
+          is_default?: boolean
+          rag_config_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string | null
+          name?: string
+          description?: string | null
+          category?: string
+          icon?: string
+          prompt_content?: string
+          questions_template?: Record<string, unknown>[] | null
+          is_active?: boolean
+          is_default?: boolean
+          rag_config_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "skills_rag_config_id_fkey"
+            columns: ["rag_config_id"]
+            isOneToOne: false
+            referencedRelation: "rag_configs"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      rag_configs: {
+        Row: {
+          id: string
+          name: string
+          description: string | null
+          enable_hyde: boolean
+          enable_query_rewrite: boolean
+          enable_decomposition: boolean
+          enable_verification: boolean
+          enable_confidence: boolean
+          enable_reasoning: boolean
+          top_k: number
+          similarity_threshold: number
+          is_preset: boolean
+          preset_category: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          description?: string | null
+          enable_hyde?: boolean
+          enable_query_rewrite?: boolean
+          enable_decomposition?: boolean
+          enable_verification?: boolean
+          enable_confidence?: boolean
+          enable_reasoning?: boolean
+          top_k?: number
+          similarity_threshold?: number
+          is_preset?: boolean
+          preset_category?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          description?: string | null
+          enable_hyde?: boolean
+          enable_query_rewrite?: boolean
+          enable_decomposition?: boolean
+          enable_verification?: boolean
+          enable_confidence?: boolean
+          enable_reasoning?: boolean
+          top_k?: number
+          similarity_threshold?: number
+          is_preset?: boolean
+          preset_category?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      match_document_chunks: {
+        Args: {
+          query_embedding: string
+          match_threshold?: number
+          match_count?: number
+          filter_document_ids?: string[] | null
+        }
+        Returns: {
+          id: string
+          document_id: string
+          document_name: string
+          chunk_index: number
+          content: string
+          similarity: number
+        }[]
+      }
+      get_user_skills: {
+        Args: {
+          p_user_id?: string | null
+        }
+        Returns: {
+          id: string
+          user_id: string | null
+          name: string
+          description: string | null
+          category: string
+          icon: string
+          prompt_content: string
+          questions_template: Record<string, unknown>[] | null
+          is_active: boolean
+          is_default: boolean
+          created_at: string
+          updated_at: string
+          is_global: boolean
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
@@ -153,3 +369,53 @@ export const Constants = {
     Enums: {},
   },
 } as const
+
+// Helper types for the RAG system
+export interface UploadedDocument {
+  id: string
+  documentId: string
+  name: string
+  uploadedAt: Date
+  status: 'processing' | 'ready' | 'error'
+  totalChunks?: number
+  totalCharacters?: number
+  errorMessage?: string
+}
+
+export interface Source {
+  documentName: string
+  chunkIndex: number
+  similarity: number
+  preview: string
+}
+
+export interface AskQuestionResponse {
+  answer: string
+  reportHtml?: string | null
+  reportData?: Record<string, unknown> | null
+  sources: Source[]
+  error?: string
+}
+
+// Skill/Agent types
+export interface Skill {
+  id: string
+  user_id: string | null
+  name: string
+  description: string | null
+  category: string
+  icon: string
+  prompt_content: string
+  questions_template: Record<string, unknown>[] | null
+  is_active: boolean
+  is_default: boolean
+  rag_config_id: string | null
+  created_at: string
+  updated_at: string
+  is_global?: boolean
+}
+
+export interface SkillCategory {
+  name: string
+  skills: Skill[]
+}

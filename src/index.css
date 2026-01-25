@@ -107,3 +107,38 @@ All colors MUST be HSL.
     @apply bg-background text-foreground;
   }
 }
+
+/* Configuration Panel Styling */
+@layer components {
+  .config-card {
+    @apply border border-border/50 bg-card/80 backdrop-blur-sm;
+  }
+
+  .config-card-header {
+    @apply py-3 px-4;
+  }
+
+  .config-section {
+    @apply space-y-3 pt-3 border-t border-border/30;
+  }
+
+  .config-toggle-row {
+    @apply flex items-center justify-between py-1.5 px-2 rounded-md hover:bg-muted/50 transition-colors;
+  }
+
+  .config-badge {
+    @apply text-[10px] px-1.5 py-0.5 font-medium;
+  }
+
+  .skill-toggle {
+    @apply flex items-center justify-between py-1.5;
+  }
+
+  .skill-label {
+    @apply flex items-center gap-2 text-sm;
+  }
+
+  .skill-icon {
+    @apply h-4 w-4 text-muted-foreground;
+  }
+}
