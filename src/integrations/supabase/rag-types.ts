@@ -273,7 +273,7 @@ export const DEFAULT_INGESTION_CONFIG: IngestionConfig = {
   preserve_tables: true,
   preserve_lists: true,
   extract_entities: false,
-  parser_preference: 'auto',
+  parser_preference: 'llamaparse',
 };
 
 // Ingestion skill descriptions for tooltips
@@ -353,7 +353,7 @@ export const INGESTION_PRESETS: Record<string, IngestionConfig> = {
     preserve_tables: true,
     preserve_lists: true,
     extract_entities: false,
-    parser_preference: 'gemini',  // Gemini is faster for simple text extraction
+    parser_preference: 'llamaparse',  // LlamaParse for reliable document parsing
   },
   balanced: {
     chunking_strategy: 'fixed',
@@ -365,7 +365,7 @@ export const INGESTION_PRESETS: Record<string, IngestionConfig> = {
     preserve_tables: true,
     preserve_lists: true,
     extract_entities: false,
-    parser_preference: 'auto',  // Let the system decide
+    parser_preference: 'llamaparse',  // LlamaParse for reliable document parsing
   },
   accurate: {
     chunking_strategy: 'semantic',

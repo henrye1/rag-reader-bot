@@ -150,6 +150,19 @@ export const FileUpload = ({ onFileSelect, selectedFiles, onUploadComplete, onCl
 
         if (error) {
           console.error("Supabase function error:", error);
+          // Try to extract the actual error message from the response
+          if (error.context) {
+            try {
+              const errorBody = await error.context.json();
+              console.error("Server error details:", errorBody);
+              if (errorBody.error) {
+                setUploadProgress(prev => ({ ...prev, [file.name]: 'error' }));
+                throw new Error(errorBody.error);
+              }
+            } catch (parseErr) {
+              console.error("Could not parse error response:", parseErr);
+            }
+          }
           setUploadProgress(prev => ({ ...prev, [file.name]: 'error' }));
           throw error;
         }

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Bot, User, Loader2, Trash2, Paperclip, X, FileSearch, Copy, Download, Check } from "lucide-react";
+import { Send, Bot, User, Loader2, Paperclip, X, FileSearch, Copy, Download, Check, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -44,7 +44,7 @@ interface Message {
 
 interface ChatInterfaceProps {
   documents: UploadedDocument[];
-  onReportGenerated: (html: string, data: Record<string, unknown>) => void;
+  onReportGenerated: (html: string, data: Record<string, unknown>, isFollowUp?: boolean) => void;
   customPrompt: string | null;
   questionsTemplate: Record<string, unknown>[] | null;
   resetTrigger?: number;
@@ -253,6 +253,12 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
         ...attachedDocIds,
       ];
 
+      // Build conversation history from previous messages (for context continuity)
+      const conversationHistory = messages.map(msg => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+
       const { data, error } = await supabase.functions.invoke("ask-question", {
         body: {
           question: input,
@@ -263,6 +269,7 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
           ragConfig: ragConfig,
           retrievalConfig: retrievalConfig,
           outputFormat: outputFormat,
+          conversationHistory: conversationHistory.length > 0 ? conversationHistory : undefined,
         },
       });
 
@@ -287,7 +294,9 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
       setMessages((prev) => [...prev, assistantMessage]);
 
       if (data.reportHtml) {
-        onReportGenerated(data.reportHtml, data.reportData);
+        // Pass isFollowUp=true if there were already messages before this interaction
+        const isFollowUp = messages.length > 0;
+        onReportGenerated(data.reportHtml, data.reportData, isFollowUp);
       }
     } catch (error) {
       console.error("Question error:", error);
@@ -313,8 +322,8 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
     setMessages([]);
     onClearChat?.();
     toast({
-      title: "Chat cleared",
-      description: "Conversation history has been reset",
+      title: "Conversation Reset",
+      description: "Chat history and accumulated report have been cleared. You can start a new conversation.",
     });
   };
 
@@ -530,10 +539,12 @@ ${sources.map((s, i) => `${i + 1}. ${s.documentName} - Chunk ${s.chunkIndex} (Si
               <Button
                 onClick={handleClearChat}
                 variant="outline"
-                size="icon"
-                title="Clear chat"
+                size="default"
+                title="Reset conversation and clear accumulated report"
+                className="gap-2 text-orange-600 hover:text-orange-700 hover:bg-orange-50 border-orange-300"
               >
-                <Trash2 className="h-4 w-4" />
+                <RotateCcw className="h-4 w-4" />
+                <span className="hidden sm:inline">Reset Conversation</span>
               </Button>
             )}
             <input

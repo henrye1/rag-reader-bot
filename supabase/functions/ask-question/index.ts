@@ -270,7 +270,8 @@ serve(async (req) => {
       ragSettings,
       ragConfig: requestRagConfig,
       retrievalConfig: requestRetrievalConfig,
-      outputFormat: requestOutputFormat
+      outputFormat: requestOutputFormat,
+      conversationHistory,  // Array of previous messages for context
     } = await req.json();
 
     if (!question || !documentIds || documentIds.length === 0) {
@@ -300,6 +301,7 @@ serve(async (req) => {
     const threshold = requestRagConfig?.similarity_threshold || ragSettings?.threshold || ragConfig.similarity_threshold;
 
     console.log(`Asking question about ${documentIds.length} document(s): ${question}`);
+    console.log(`Conversation history: ${conversationHistory ? conversationHistory.length + ' messages' : 'none'}`);
     console.log(`RAG settings: topK=${topK}, threshold=${threshold}`);
     console.log(`RAG skills: hyde=${ragConfig.enable_hyde}, rewrite=${ragConfig.enable_query_rewrite}, decomp=${ragConfig.enable_decomposition}, verify=${ragConfig.enable_verification}, conf=${ragConfig.enable_confidence}, reasoning=${ragConfig.enable_reasoning}`);
     console.log(`Retrieval skills: rerank=${retrievalConfig.enable_reranking}, fusion=${retrievalConfig.enable_fusion}, hierarchical=${retrievalConfig.enable_hierarchical}, selfRAG=${retrievalConfig.enable_self_rag}, crag=${retrievalConfig.enable_crag}`);
@@ -740,12 +742,42 @@ For EACH question above:
 
       finalPrompt += documentsInstruction;
 
-      finalPrompt += `${outputFormatInstructions}\n\n## USER QUESTION:\n${question}\n\nINSTRUCTIONS:
+      finalPrompt += `${outputFormatInstructions}\n\n`;
+
+      // Add conversation history for context continuity
+      if (conversationHistory && conversationHistory.length > 0) {
+        finalPrompt += `## CONVERSATION HISTORY (for context):\n`;
+        finalPrompt += `The user is continuing a conversation. Here is the previous exchange for context:\n\n`;
+        for (const msg of conversationHistory) {
+          if (msg.role === 'user') {
+            finalPrompt += `USER: ${msg.content}\n\n`;
+          } else if (msg.role === 'assistant') {
+            // Truncate long assistant responses to save context
+            const truncatedContent = msg.content.length > 2000
+              ? msg.content.substring(0, 2000) + '... [truncated for brevity]'
+              : msg.content;
+            finalPrompt += `ASSISTANT: ${truncatedContent}\n\n`;
+          }
+        }
+        finalPrompt += `---\n\n`;
+        finalPrompt += `## CURRENT FOLLOW-UP QUESTION:\n${question}\n\n`;
+        finalPrompt += `INSTRUCTIONS:
+- This is a FOLLOW-UP question in an ongoing conversation
+- Build upon and reference the previous responses where relevant
+- Provide ADDITIONAL information that complements what was already discussed
+- If the user is asking for clarification, provide more detail on that specific topic
+- If the user is asking for missing information, focus on that gap
+- Use ONLY the information from the retrieved sections
+- CITE your sources using the CITATION FORMAT specified above
+- Do NOT repeat information already provided unless specifically asked`;
+      } else {
+        finalPrompt += `## USER QUESTION:\n${question}\n\nINSTRUCTIONS:
 - Use ONLY the information from the retrieved sections
 - Provide a COMPLETE, DETAILED answer following the OUTPUT FORMAT above
 - Structure your response according to the STRUCTURE REQUIREMENTS
 - CITE your sources using the CITATION FORMAT specified above
 - If information is not in the retrieved sections, state so clearly`;
+      }
     }
 
     if (generateReport) {

@@ -161,9 +161,69 @@ const Index = () => {
     });
   };
 
-  const handleReportGenerated = (html: string, data: Record<string, unknown>) => {
-    setGeneratedReport(html);
-    setReportData(data);
+  const handleReportGenerated = (html: string, data: Record<string, unknown>, isFollowUp?: boolean) => {
+    if (isFollowUp && generatedReport) {
+      // Cumulative mode: append new content to existing report
+      // Extract the new answer and append it as an additional section
+      const newAnswer = (data as { answer?: string }).answer || '';
+      const timestamp = new Date().toLocaleTimeString();
+
+      // Create a follow-up section to append
+      const followUpSection = `
+        <div class="section follow-up-section" style="margin-top: 30px; border-top: 3px dashed #2196f3; padding-top: 20px;">
+          <h2 style="color: #2196f3;">FOLLOW-UP RESPONSE (${timestamp})</h2>
+          ${formatFollowUpContent(newAnswer)}
+        </div>
+      `;
+
+      // Insert the follow-up section before the closing </div></body>
+      const insertPoint = generatedReport.lastIndexOf('</div>\n</body>');
+      if (insertPoint !== -1) {
+        const updatedReport = generatedReport.slice(0, insertPoint) + followUpSection + generatedReport.slice(insertPoint);
+        setGeneratedReport(updatedReport);
+      } else {
+        // Fallback: just append
+        setGeneratedReport(generatedReport + followUpSection);
+      }
+
+      // Merge report data
+      setReportData(prev => ({
+        ...prev,
+        ...data,
+        followUpCount: ((prev as { followUpCount?: number })?.followUpCount || 0) + 1,
+      }));
+    } else {
+      // Initial report: replace completely
+      setGeneratedReport(html);
+      setReportData(data);
+    }
+  };
+
+  // Helper function to format follow-up content (similar to formatAnalysisContent in Edge Function)
+  const formatFollowUpContent = (answer: string): string => {
+    let html = answer;
+
+    // Strip citations for clean report output
+    html = html.replace(/\[Source:\s*[^\]]+\]/gi, '');
+    html = html.replace(/\[Chunk\s*\d+[^\]]*\]/gi, '');
+    html = html.replace(/\(Source:\s*[^)]+\)/gi, '');
+    html = html.replace(/\s{2,}/g, ' ');
+    html = html.replace(/\n\s*\n\s*\n/g, '\n\n');
+
+    // Format markdown to HTML
+    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h2>$1</h2>');
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/^\s*[-*]\s+(.+)$/gm, '<li>$1</li>');
+    html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+    html = html.replace(/\n\n/g, '</p><p>');
+    html = '<p>' + html + '</p>';
+    html = html.replace(/<p>\s*<\/p>/g, '');
+    html = html.replace(/<p>\s*<h/g, '<h');
+    html = html.replace(/<\/h([23])>\s*<\/p>/g, '</h$1>');
+
+    return html;
   };
 
   const handlePromptLoaded = (prompt: string, fileName: string) => {

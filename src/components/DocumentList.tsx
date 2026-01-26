@@ -1,9 +1,21 @@
-import { FileText, X, Trash2, CheckCircle, Loader2, AlertCircle, Database, RefreshCw } from "lucide-react";
+import { useState } from "react";
+import { FileText, X, Trash2, CheckCircle, Loader2, AlertCircle, Database, RefreshCw, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { UploadedDocument } from "@/pages/Index";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface DocumentListProps {
   documents: UploadedDocument[];
@@ -13,7 +25,18 @@ interface DocumentListProps {
 }
 
 export const DocumentList = ({ documents, onRemove, onClearAll, onReprocess }: DocumentListProps) => {
+  const [isClearing, setIsClearing] = useState(false);
   const readyCount = documents.filter(d => d.status === 'ready').length;
+  const totalChunks = documents.reduce((sum, d) => sum + (d.totalChunks || 0), 0);
+
+  const handleClearAll = async () => {
+    setIsClearing(true);
+    try {
+      await onClearAll();
+    } finally {
+      setIsClearing(false);
+    }
+  };
 
   if (documents.length === 0) {
     return (
@@ -76,15 +99,57 @@ export const DocumentList = ({ documents, onRemove, onClearAll, onReprocess }: D
               {readyCount} of {documents.length} document(s) ready for RAG search
             </CardDescription>
           </div>
-          <Button
-            onClick={onClearAll}
-            variant="outline"
-            size="sm"
-            className="gap-2"
-          >
-            <Trash2 className="h-4 w-4" />
-            Clear All
-          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+              >
+                <Trash2 className="h-4 w-4" />
+                Clear All Documents
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle className="flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-destructive" />
+                  Clear All Documents?
+                </AlertDialogTitle>
+                <AlertDialogDescription className="space-y-2">
+                  <p>This will permanently delete:</p>
+                  <ul className="list-disc list-inside text-sm space-y-1">
+                    <li><strong>{documents.length}</strong> document(s)</li>
+                    <li><strong>{totalChunks}</strong> indexed chunks</li>
+                    <li>All embeddings from the database</li>
+                  </ul>
+                  <p className="text-destructive font-medium mt-2">
+                    This action cannot be undone. Make sure you have the original files if needed.
+                  </p>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={handleClearAll}
+                  disabled={isClearing}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  {isClearing ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Clearing...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Clear All Documents
+                    </>
+                  )}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </CardHeader>
       <CardContent>

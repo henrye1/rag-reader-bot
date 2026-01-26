@@ -248,6 +248,52 @@ export const IngestionConfigPanel = ({
               </p>
             </div>
 
+            {/* Parser Selection - Prominent Position */}
+            <div className="config-section p-3 rounded-lg bg-muted/50 border">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <ScanText className="h-4 w-4 text-primary" />
+                  <Label className="text-sm font-medium">Document Parser</Label>
+                </div>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-[300px]">
+                      <p>Choose how PDF and DOCX files are parsed. Use <strong>Gemini</strong> if LlamaParse results are not satisfactory for your document type.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+              <Select
+                value={config.parser_preference}
+                onValueChange={(value) =>
+                  handleConfigChange({ parser_preference: value as ParserPreference })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(['auto', 'llamaparse', 'gemini'] as ParserPreference[]).map((parser) => {
+                    const info = PARSER_INFO[parser];
+                    return (
+                      <SelectItem key={parser} value={parser}>
+                        <div className="flex items-center gap-2">
+                          <ScanText className="h-4 w-4" />
+                          <span className="font-medium">{info.name}</span>
+                        </div>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1.5">
+                {PARSER_INFO[config.parser_preference]?.description}
+              </p>
+            </div>
+
             {/* Enhancement Toggles */}
             <div className="config-section">
               <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Enhancements</Label>
@@ -373,53 +419,7 @@ export const IngestionConfigPanel = ({
                   </p>
                 </div>
 
-                {/* Parser Selection */}
                 <div className="space-y-2 pt-2 border-t">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <ScanText className="h-4 w-4 text-muted-foreground" />
-                      <Label className="text-sm font-medium">Document Parser</Label>
-                    </div>
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger>
-                          <Info className="h-3.5 w-3.5 text-muted-foreground" />
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-[300px]">
-                          <p>Choose how PDF and DOCX files are parsed. LlamaParse provides superior extraction for complex documents with tables and layouts.</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                  <Select
-                    value={config.parser_preference}
-                    onValueChange={(value) =>
-                      handleConfigChange({ parser_preference: value as ParserPreference })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(['auto', 'llamaparse', 'gemini'] as ParserPreference[]).map((parser) => {
-                        const info = PARSER_INFO[parser];
-                        return (
-                          <SelectItem key={parser} value={parser}>
-                            <div className="flex items-center gap-2">
-                              <ScanText className="h-4 w-4" />
-                              <span className="font-medium">{info.name}</span>
-                            </div>
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    {PARSER_INFO[config.parser_preference]?.description}
-                  </p>
-                </div>
-
-                <div className="space-y-2 pt-2">
                   <Label className="text-sm font-medium">Preservation Options</Label>
                   <div className="flex items-center justify-between py-1">
                     <div className="flex items-center gap-2">
