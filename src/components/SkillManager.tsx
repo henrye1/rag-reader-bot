@@ -12,6 +12,9 @@ import {
   Globe,
   User,
   FileText,
+  Sparkles,
+  Wand2,
+  FileOutput,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,6 +41,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import type { Skill } from "@/integrations/supabase/types";
 import { useToast } from "@/hooks/use-toast";
+import { SkillCreatorDialog } from "@/components/SkillCreatorDialog";
 
 interface SkillManagerProps {
   isOpen: boolean;
@@ -50,6 +54,12 @@ const CATEGORIES = [
   "Risk Management",
   "Compliance",
   "Audit",
+  "Legal",
+  "Technical",
+  "Operations",
+  "Document Generation",
+  "Research",
+  "Meta",
   "General",
   "Custom",
 ];
@@ -76,6 +86,7 @@ export const SkillManager = ({ isOpen, onClose, onSkillsChanged }: SkillManagerP
   const [editingSkill, setEditingSkill] = useState<Partial<Skill> | null>(null);
   const [expandedSkill, setExpandedSkill] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [showSkillCreator, setShowSkillCreator] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -213,6 +224,7 @@ export const SkillManager = ({ isOpen, onClose, onSkillsChanged }: SkillManagerP
   const SkillCard = ({ skill }: { skill: Skill }) => {
     const isExpanded = expandedSkill === skill.id;
     const isGlobal = skill.user_id === null;
+    const skillType = skill.skill_type || 'expert';
 
     return (
       <div className="border rounded-lg bg-card">
@@ -222,8 +234,21 @@ export const SkillManager = ({ isOpen, onClose, onSkillsChanged }: SkillManagerP
         >
           <span className="text-xl">{skill.icon}</span>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <p className="font-medium truncate">{skill.name}</p>
+              {/* Skill Type Badges */}
+              {skillType === 'generator' && (
+                <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
+                  <FileOutput className="h-3 w-3 mr-1" />
+                  Generator
+                </Badge>
+              )}
+              {skillType === 'meta' && (
+                <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+                  <Wand2 className="h-3 w-3 mr-1" />
+                  Meta
+                </Badge>
+              )}
               {skill.is_default && (
                 <Badge variant="secondary" className="text-xs">Default</Badge>
               )}
@@ -322,6 +347,7 @@ export const SkillManager = ({ isOpen, onClose, onSkillsChanged }: SkillManagerP
   };
 
   return (
+    <>
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
         <DialogHeader>
@@ -446,7 +472,16 @@ export const SkillManager = ({ isOpen, onClose, onSkillsChanged }: SkillManagerP
         ) : (
           // Skills List
           <>
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2">
+              <Button
+                onClick={() => setShowSkillCreator(true)}
+                size="sm"
+                variant="outline"
+                className="gap-1"
+              >
+                <Sparkles className="h-4 w-4" />
+                AI Generate
+              </Button>
               <Button onClick={() => setEditingSkill({ ...emptySkill })} size="sm">
                 <Plus className="h-4 w-4 mr-1" />
                 New Skill
@@ -508,5 +543,16 @@ export const SkillManager = ({ isOpen, onClose, onSkillsChanged }: SkillManagerP
         )}
       </DialogContent>
     </Dialog>
+
+    {/* AI Skill Creator Dialog */}
+    <SkillCreatorDialog
+      isOpen={showSkillCreator}
+      onClose={() => setShowSkillCreator(false)}
+      onSkillCreated={() => {
+        loadSkills();
+        onSkillsChanged();
+      }}
+    />
+  </>
   );
 };

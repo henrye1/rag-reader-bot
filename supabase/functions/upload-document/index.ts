@@ -36,7 +36,7 @@ const DEFAULT_INGESTION_CONFIG: IngestionConfig = {
   preserve_tables: true,
   preserve_lists: true,
   extract_entities: false,
-  parser_preference: 'auto',
+  parser_preference: 'gemini', // Default to Gemini for faster processing
 };
 
 /**
@@ -96,8 +96,9 @@ serve(async (req) => {
       }
     }
 
-    console.log(`Uploading file: ${file.name}, size: ${file.size} bytes, type: ${file.type}`);
-    console.log(`Ingestion config: strategy=${ingestionConfig.chunking_strategy}, chunkSize=${ingestionConfig.chunk_size}, overlap=${ingestionConfig.chunk_overlap}`);
+    const startTime = Date.now();
+    console.log(`[START] Uploading file: ${file.name}, size: ${file.size} bytes, type: ${file.type}`);
+    console.log(`[CONFIG] strategy=${ingestionConfig.chunking_strategy}, chunkSize=${ingestionConfig.chunk_size}, parser=${ingestionConfig.parser_preference}`);
 
     // Determine file type
     let fileType = 'unknown';
@@ -206,7 +207,8 @@ serve(async (req) => {
       }
 
       // Chunk the text with ingestion config
-      console.log(`Chunking with strategy: ${ingestionConfig.chunking_strategy}...`);
+      const chunkStartTime = Date.now();
+      console.log(`[CHUNKING] Starting with strategy: ${ingestionConfig.chunking_strategy}...`);
       const chunks = await chunkText(
         extractedText,
         {
@@ -222,19 +224,20 @@ serve(async (req) => {
         },
         GOOGLE_API_KEY  // Pass API key for advanced chunking strategies
       );
-      console.log(`Created ${chunks.length} chunks using ${ingestionConfig.chunking_strategy} strategy`);
+      console.log(`[CHUNKING] Created ${chunks.length} chunks in ${Date.now() - chunkStartTime}ms`);
 
       if (chunks.length === 0) {
         throw new Error("No chunks created from document");
       }
 
       // Generate embeddings for all chunks (batch)
-      console.log(`Generating embeddings for ${chunks.length} chunks...`);
+      const embedStartTime = Date.now();
+      console.log(`[EMBEDDINGS] Generating for ${chunks.length} chunks...`);
       const embeddings = await generateEmbeddingsBatch(
         chunks.map(c => c.content),
         GOOGLE_API_KEY
       );
-      console.log(`Generated ${embeddings.length} embeddings`);
+      console.log(`[EMBEDDINGS] Generated ${embeddings.length} embeddings in ${Date.now() - embedStartTime}ms`);
 
       // Insert chunks with embeddings
       // pgvector expects the embedding as a string in format '[0.1, 0.2, ...]'
@@ -277,7 +280,8 @@ serve(async (req) => {
         throw new Error(`Failed to update document: ${updateError.message}`);
       }
 
-      console.log(`Document ${documentId} ready with ${chunks.length} chunks`);
+      const totalTime = Date.now() - startTime;
+      console.log(`[DONE] Document ${documentId} ready with ${chunks.length} chunks in ${totalTime}ms`);
 
       return new Response(
         JSON.stringify({
@@ -286,6 +290,7 @@ serve(async (req) => {
           status: 'ready',
           totalChunks: chunks.length,
           totalCharacters: extractedText.length,
+          processingTimeMs: totalTime,
         }),
         {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -389,9 +394,11 @@ async function uploadToGoogleAndExtract(
   }
 
   // Step 3: Wait for file to be processed
+  console.log(`[Gemini] Waiting for file processing: ${fileName}`);
+  const processingStartTime = Date.now();
   let fileState = uploadData.file?.state || "PROCESSING";
   let attempts = 0;
-  const maxAttempts = 60; // 60 seconds max for larger files
+  const maxAttempts = 30; // 30 seconds max (reduced for faster feedback)
 
   while (fileState === "PROCESSING" && attempts < maxAttempts) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -409,15 +416,21 @@ async function uploadToGoogleAndExtract(
       }
 
       if (fileState === "ACTIVE") {
+        console.log(`[Gemini] File active after ${attempts + 1}s`);
         break;
       }
     }
 
     attempts++;
+    if (attempts % 5 === 0) {
+      console.log(`[Gemini] Still processing... (${attempts}s)`);
+    }
   }
 
+  console.log(`[Gemini] File processing took ${Date.now() - processingStartTime}ms`);
+
   if (fileState !== "ACTIVE") {
-    throw new Error("File processing timeout");
+    throw new Error(`File processing timeout after ${maxAttempts}s`);
   }
 
   // Step 4: Extract text using Gemini

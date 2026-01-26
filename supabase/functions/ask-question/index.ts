@@ -273,6 +273,10 @@ serve(async (req) => {
       outputFormat: requestOutputFormat,
       conversationHistory,  // Array of previous messages for context
       researchMode,  // Flag to skip RAG and use general knowledge
+      // Second Brain skill type support
+      skillType,  // 'expert' | 'generator' | 'meta'
+      skillName,  // Name of the skill being used
+      skillOutputFormat,  // 'text' | 'markdown' | 'json'
     } = await req.json();
 
     // Research mode doesn't require documents
@@ -307,6 +311,7 @@ serve(async (req) => {
 
     console.log(`Asking question about ${documentIds?.length || 0} document(s): ${question}`);
     console.log(`Research mode: ${researchMode ? 'YES' : 'NO'}`);
+    console.log(`Skill type: ${skillType || 'expert'}, name: ${skillName || 'default'}, output: ${skillOutputFormat || 'text'}`);
     console.log(`Conversation history: ${conversationHistory ? conversationHistory.length + ' messages' : 'none'}`);
     console.log(`RAG settings: topK=${topK}, threshold=${threshold}`);
     console.log(`RAG skills: hyde=${ragConfig.enable_hyde}, rewrite=${ragConfig.enable_query_rewrite}, decomp=${ragConfig.enable_decomposition}, verify=${ragConfig.enable_verification}, conf=${ragConfig.enable_confidence}, reasoning=${ragConfig.enable_reasoning}`);
@@ -411,6 +416,101 @@ IMPORTANT GUIDELINES:
           skillsApplied: skillsApplied,
           processingTimeMs: processingTimeMs,
           researchMode: true,
+        }),
+        {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    // =====================================================
+    // META SKILL HANDLING (e.g., Skill Creator)
+    // =====================================================
+    if (skillType === 'meta' && skillName === 'Skill Creator') {
+      console.log("Meta Skill: Skill Creator - Generating new skill definition");
+      skillsApplied.push('Skill Creator (Meta)');
+
+      // For meta skills, we invoke the create-skill function directly
+      // The question is treated as the skill description
+      const metaPrompt = `You are the Skill Creator. Generate a complete skill definition in JSON format.
+
+The user wants to create a skill for: ${question}
+
+${customPrompt ? `Additional context from the selected skill prompt:\n${customPrompt}\n` : ''}
+
+Generate a JSON response with:
+{
+  "skill": {
+    "name": "Short name",
+    "description": "2-3 sentences",
+    "category": "Best category",
+    "icon": "Emoji",
+    "skill_type": "expert",
+    "output_format": "text",
+    "prompt_content": "Full expert framework"
+  },
+  "reasoning": "Why you made these choices",
+  "suggested_use_cases": ["Use case 1", "Use case 2"]
+}`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+      let response;
+      try {
+        response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GOOGLE_API_KEY}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: metaPrompt }] }],
+              generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 4096,
+              },
+            }),
+            signal: controller.signal,
+          },
+        );
+        clearTimeout(timeoutId);
+      } catch (error: unknown) {
+        clearTimeout(timeoutId);
+        if (error instanceof Error && error.name === "AbortError") {
+          throw new Error("Request timeout: The AI took too long to respond.");
+        }
+        throw error;
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`AI API error: ${errorText}`);
+      }
+
+      const data = await response.json();
+      const rawAnswer = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      const processingTimeMs = Date.now() - startTime;
+
+      // Try to parse as JSON for structured response
+      let generatedSkill = null;
+      try {
+        let cleanJson = rawAnswer.trim();
+        if (cleanJson.startsWith("```json")) cleanJson = cleanJson.slice(7);
+        if (cleanJson.startsWith("```")) cleanJson = cleanJson.slice(3);
+        if (cleanJson.endsWith("```")) cleanJson = cleanJson.slice(0, -3);
+        generatedSkill = JSON.parse(cleanJson.trim());
+      } catch {
+        // If parsing fails, return raw answer
+      }
+
+      return new Response(
+        JSON.stringify({
+          answer: rawAnswer,
+          sources: [],
+          skillsApplied: skillsApplied,
+          processingTimeMs: processingTimeMs,
+          skillType: 'meta',
+          generatedSkill: generatedSkill,
         }),
         {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1009,6 +1109,10 @@ Generate a structured report with:
       confidence: confidence,
       skillsApplied: skillsApplied,
       processingTimeMs: processingTimeMs,
+      // Second Brain skill metadata
+      skillType: skillType || 'expert',
+      skillOutputFormat: skillOutputFormat || 'text',
+      isGeneratorSkill: skillType === 'generator',
     };
 
     return new Response(

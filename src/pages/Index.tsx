@@ -483,6 +483,7 @@ const Index = () => {
                 outputFormat={outputFormat}
                 selectedSkill={selectedSkill}
                 onSkillChange={handleSkillSelect}
+                skillsRefreshKey={skillsRefreshKey}
                 onClearChat={() => {
                   setGeneratedReport(null);
                   setReportData(null);

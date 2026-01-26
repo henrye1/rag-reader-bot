@@ -17,6 +17,7 @@ import type { Skill, SkillCategory } from "@/integrations/supabase/types";
 // Research Assistant is a special mode that queries general knowledge
 export const RESEARCH_ASSISTANT: Skill = {
   id: 'research-assistant',
+  user_id: null,
   name: 'Research Assistant',
   description: 'Query general knowledge without revealing confidential document data. Use for exploring methodologies, statistical approaches, and external concepts.',
   category: 'Research',
@@ -46,7 +47,13 @@ Examples of how you can help:
   questions_template: null,
   is_default: false,
   is_active: true,
+  rag_config_id: null,
+  skill_type: 'expert',
+  output_format: 'text',
+  parent_skill_id: null,
+  tool_connector_ids: [],
   created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
 };
 
 interface ChatExpertSelectorProps {
@@ -54,6 +61,10 @@ interface ChatExpertSelectorProps {
   onExpertChange: (expert: Skill | null) => void;
   isResearchMode: boolean;
   onResearchModeChange: (enabled: boolean) => void;
+  /** Optional: pass skills from parent to ensure synchronization with SkillSelector */
+  availableSkills?: Skill[];
+  /** Key to trigger skills refresh (increment to refresh) */
+  refreshKey?: number;
 }
 
 export const ChatExpertSelector = ({
@@ -61,14 +72,37 @@ export const ChatExpertSelector = ({
   onExpertChange,
   isResearchMode,
   onResearchModeChange,
+  availableSkills,
+  refreshKey,
 }: ChatExpertSelectorProps) => {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [categories, setCategories] = useState<SkillCategory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Use provided skills if available, otherwise load from database
+  // Also refresh when refreshKey changes
   useEffect(() => {
-    loadSkills();
-  }, []);
+    if (availableSkills && availableSkills.length > 0) {
+      setSkills(availableSkills);
+      groupSkillsByCategory(availableSkills);
+      setIsLoading(false);
+    } else {
+      loadSkills();
+    }
+  }, [availableSkills, refreshKey]);
+
+  const groupSkillsByCategory = (skillsData: Skill[]) => {
+    const grouped = skillsData.reduce((acc, skill) => {
+      const existing = acc.find(c => c.name === skill.category);
+      if (existing) {
+        existing.skills.push(skill);
+      } else {
+        acc.push({ name: skill.category, skills: [skill] });
+      }
+      return acc;
+    }, [] as SkillCategory[]);
+    setCategories(grouped);
+  };
 
   const loadSkills = async () => {
     setIsLoading(true);
@@ -85,19 +119,7 @@ export const ChatExpertSelector = ({
 
       const skillsData = data as Skill[];
       setSkills(skillsData);
-
-      // Group by category
-      const grouped = skillsData.reduce((acc, skill) => {
-        const existing = acc.find(c => c.name === skill.category);
-        if (existing) {
-          existing.skills.push(skill);
-        } else {
-          acc.push({ name: skill.category, skills: [skill] });
-        }
-        return acc;
-      }, [] as SkillCategory[]);
-
-      setCategories(grouped);
+      groupSkillsByCategory(skillsData);
     } catch (error) {
       console.error("Failed to load skills:", error);
     } finally {

@@ -6,6 +6,30 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
+// Skill type definitions for Second Brain feature
+export type SkillType = 'expert' | 'generator' | 'meta'
+export type OutputFormat = 'text' | 'markdown' | 'json'
+
+// Tool Action definition for Tool Connectors
+export interface ToolAction {
+  id: string
+  name: string
+  description?: string
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE'
+  path: string
+  parameters?: ActionParameter[]
+  response_mapping?: Record<string, string>
+}
+
+export interface ActionParameter {
+  name: string
+  type: 'string' | 'number' | 'boolean' | 'object'
+  required: boolean
+  in: 'query' | 'body' | 'header' | 'path'
+  description?: string
+  default?: string | number | boolean
+}
+
 export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "13.0.5"
@@ -102,6 +126,10 @@ export type Database = {
           is_active: boolean
           is_default: boolean
           rag_config_id: string | null
+          skill_type: SkillType
+          output_format: OutputFormat
+          parent_skill_id: string | null
+          tool_connector_ids: string[]
           created_at: string
           updated_at: string
         }
@@ -117,6 +145,10 @@ export type Database = {
           is_active?: boolean
           is_default?: boolean
           rag_config_id?: string | null
+          skill_type?: SkillType
+          output_format?: OutputFormat
+          parent_skill_id?: string | null
+          tool_connector_ids?: string[]
           created_at?: string
           updated_at?: string
         }
@@ -132,6 +164,10 @@ export type Database = {
           is_active?: boolean
           is_default?: boolean
           rag_config_id?: string | null
+          skill_type?: SkillType
+          output_format?: OutputFormat
+          parent_skill_id?: string | null
+          tool_connector_ids?: string[]
           created_at?: string
           updated_at?: string
         }
@@ -144,6 +180,69 @@ export type Database = {
             referencedColumns: ["id"]
           }
         ]
+      }
+      tool_connectors: {
+        Row: {
+          id: string
+          user_id: string | null
+          name: string
+          description: string | null
+          icon: string
+          connector_type: string
+          base_url: string
+          auth_type: string
+          auth_header_name: string
+          auth_value: string | null
+          default_headers: Record<string, string>
+          timeout_ms: number
+          actions: ToolAction[]
+          is_active: boolean
+          last_tested_at: string | null
+          last_error: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id?: string | null
+          name: string
+          description?: string | null
+          icon?: string
+          connector_type?: string
+          base_url: string
+          auth_type?: string
+          auth_header_name?: string
+          auth_value?: string | null
+          default_headers?: Record<string, string>
+          timeout_ms?: number
+          actions?: ToolAction[]
+          is_active?: boolean
+          last_tested_at?: string | null
+          last_error?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string | null
+          name?: string
+          description?: string | null
+          icon?: string
+          connector_type?: string
+          base_url?: string
+          auth_type?: string
+          auth_header_name?: string
+          auth_value?: string | null
+          default_headers?: Record<string, string>
+          timeout_ms?: number
+          actions?: ToolAction[]
+          is_active?: boolean
+          last_tested_at?: string | null
+          last_error?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       rag_configs: {
         Row: {
@@ -410,6 +509,10 @@ export interface Skill {
   is_active: boolean
   is_default: boolean
   rag_config_id: string | null
+  skill_type: SkillType
+  output_format: OutputFormat
+  parent_skill_id: string | null
+  tool_connector_ids: string[]
   created_at: string
   updated_at: string
   is_global?: boolean
@@ -418,4 +521,49 @@ export interface Skill {
 export interface SkillCategory {
   name: string
   skills: Skill[]
+}
+
+// Tool Connector types
+export interface ToolConnector {
+  id: string
+  user_id: string | null
+  name: string
+  description: string | null
+  icon: string
+  connector_type: string
+  base_url: string
+  auth_type: 'none' | 'api_key' | 'bearer' | 'basic'
+  auth_header_name: string
+  auth_value: string | null
+  default_headers: Record<string, string>
+  timeout_ms: number
+  actions: ToolAction[]
+  is_active: boolean
+  last_tested_at: string | null
+  last_error: string | null
+  created_at: string
+  updated_at: string
+}
+
+// Generated Skill response from Skill Creator
+export interface GeneratedSkillResponse {
+  skill: {
+    name: string
+    description: string
+    category: string
+    icon: string
+    skill_type: SkillType
+    output_format: OutputFormat
+    prompt_content: string
+  }
+  reasoning: string
+  suggested_use_cases: string[]
+}
+
+// Generator skill structured output
+export interface GeneratorOutput {
+  displayText: string
+  structuredData?: Record<string, unknown>
+  outputFormat: OutputFormat
+  downloadable?: boolean
 }

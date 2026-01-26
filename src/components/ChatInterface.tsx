@@ -55,9 +55,11 @@ interface ChatInterfaceProps {
   onClearChat?: () => void;
   selectedSkill?: Skill | null;
   onSkillChange?: (skill: Skill | null) => void;
+  /** Key to trigger skills refresh in ChatExpertSelector */
+  skillsRefreshKey?: number;
 }
 
-export const ChatInterface = ({ documents, onReportGenerated, customPrompt, questionsTemplate, resetTrigger, ragConfig, retrievalConfig, outputFormat, onClearChat, selectedSkill, onSkillChange }: ChatInterfaceProps) => {
+export const ChatInterface = ({ documents, onReportGenerated, customPrompt, questionsTemplate, resetTrigger, ragConfig, retrievalConfig, outputFormat, onClearChat, selectedSkill, onSkillChange, skillsRefreshKey }: ChatInterfaceProps) => {
   const [messages, setMessages] = useLocalStorage<Message[]>("chatMessages", []);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -532,6 +534,7 @@ ${sources.map((s, i) => `${i + 1}. ${s.documentName} - Chunk ${s.chunkIndex} (Si
               }}
               isResearchMode={isResearchMode}
               onResearchModeChange={setIsResearchMode}
+              refreshKey={skillsRefreshKey}
             />
           </div>
 
