@@ -10,7 +10,8 @@ import type { UploadedDocument } from "@/pages/Index";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { ChunkSources } from "@/components/ChunkSources";
 import { RagMetadataBadges } from "@/components/RagMetadataBadges";
-import type { Source } from "@/integrations/supabase/types";
+import { ChatExpertSelector, RESEARCH_ASSISTANT } from "@/components/ChatExpertSelector";
+import type { Source, Skill } from "@/integrations/supabase/types";
 import type { RagConfig, RetrievalConfig, VerificationResult, ConfidenceResult } from "@/integrations/supabase/rag-types";
 import type { OutputFormatConfig } from "@/components/OutputFormatPanel";
 
@@ -51,12 +52,12 @@ interface ChatInterfaceProps {
   ragConfig?: Omit<RagConfig, 'id' | 'created_at'>;
   retrievalConfig?: RetrievalConfig;
   outputFormat?: OutputFormatConfig;
-  suggestedQuestion?: string | null;
-  onSuggestedQuestionUsed?: () => void;
   onClearChat?: () => void;
+  selectedSkill?: Skill | null;
+  onSkillChange?: (skill: Skill | null) => void;
 }
 
-export const ChatInterface = ({ documents, onReportGenerated, customPrompt, questionsTemplate, resetTrigger, ragConfig, retrievalConfig, outputFormat, suggestedQuestion, onSuggestedQuestionUsed, onClearChat }: ChatInterfaceProps) => {
+export const ChatInterface = ({ documents, onReportGenerated, customPrompt, questionsTemplate, resetTrigger, ragConfig, retrievalConfig, outputFormat, onClearChat, selectedSkill, onSkillChange }: ChatInterfaceProps) => {
   const [messages, setMessages] = useLocalStorage<Message[]>("chatMessages", []);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -64,17 +65,19 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
   const [isUploading, setIsUploading] = useState(false);
   const [hasProcessedQuestions, setHasProcessedQuestions] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  // Per-message expert selection
+  const [chatExpert, setChatExpert] = useLocalStorage<Skill | null>("chatExpert", null);
+  const [isResearchMode, setIsResearchMode] = useLocalStorage<boolean>("isResearchMode", false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  // Handle suggested question from skill selector
+  // Sync with parent skill selection if provided
   useEffect(() => {
-    if (suggestedQuestion) {
-      setInput(suggestedQuestion);
-      onSuggestedQuestionUsed?.();
+    if (selectedSkill && !isResearchMode) {
+      setChatExpert(selectedSkill);
     }
-  }, [suggestedQuestion, onSuggestedQuestionUsed]);
+  }, [selectedSkill]);
 
   // Watch for reset trigger from parent
   useEffect(() => {
@@ -205,10 +208,11 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
   const handleSend = async () => {
     if (!input.trim() || isLoading || isUploading) return;
 
-    if (documents.length === 0 && attachedFiles.length === 0) {
+    // Research mode doesn't require documents
+    if (!isResearchMode && documents.length === 0 && attachedFiles.length === 0) {
       toast({
         title: "No documents",
-        description: "Please upload a document or attach files to your question",
+        description: "Please upload a document or attach files to your question, or switch to Research Assistant mode",
         variant: "destructive",
       });
       return;
@@ -225,9 +229,9 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
     setIsLoading(true);
 
     try {
-      // Upload attached files first if any
+      // Upload attached files first if any (not needed in research mode)
       const attachedDocIds: string[] = [];
-      if (attachedFiles.length > 0) {
+      if (!isResearchMode && attachedFiles.length > 0) {
         setIsUploading(true);
         for (const file of attachedFiles) {
           const formData = new FormData();
@@ -247,8 +251,8 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
         setAttachedFiles([]);
       }
 
-      // Combine all document IDs
-      const allDocumentIds = [
+      // Combine all document IDs (empty for research mode)
+      const allDocumentIds = isResearchMode ? [] : [
         ...documents.map((doc) => doc.documentId),
         ...attachedDocIds,
       ];
@@ -259,17 +263,21 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
         content: msg.content,
       }));
 
+      // Use the current expert's prompt (chatExpert takes precedence over customPrompt)
+      const effectivePrompt = chatExpert?.prompt_content || customPrompt;
+
       const { data, error } = await supabase.functions.invoke("ask-question", {
         body: {
           question: input,
           documentIds: allDocumentIds,
-          customPrompt: customPrompt,
+          customPrompt: effectivePrompt,
           questionsTemplate: questionsTemplate,
-          generateReport: true,
+          generateReport: true, // Always generate for cumulative report
           ragConfig: ragConfig,
           retrievalConfig: retrievalConfig,
           outputFormat: outputFormat,
           conversationHistory: conversationHistory.length > 0 ? conversationHistory : undefined,
+          researchMode: isResearchMode, // Flag to skip RAG and use general knowledge
         },
       });
 
@@ -293,10 +301,13 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
 
       setMessages((prev) => [...prev, assistantMessage]);
 
+      // Handle report generation (including research mode responses)
+      const isFollowUp = messages.length > 0;
       if (data.reportHtml) {
-        // Pass isFollowUp=true if there were already messages before this interaction
-        const isFollowUp = messages.length > 0;
-        onReportGenerated(data.reportHtml, data.reportData, isFollowUp);
+        onReportGenerated(data.reportHtml, { ...data.reportData, researchMode: data.researchMode }, isFollowUp);
+      } else if (isResearchMode && data.answer) {
+        // For research mode without reportHtml, pass the answer for cumulative report
+        onReportGenerated(null as unknown as string, { answer: data.answer, researchMode: true }, isFollowUp);
       }
     } catch (error) {
       console.error("Question error:", error);
@@ -511,6 +522,19 @@ ${sources.map((s, i) => `${i + 1}. ${s.documentName} - Chunk ${s.chunkIndex} (Si
 
         {/* Input Area */}
         <div className="border-t border-border p-4 bg-card">
+          {/* Expert Selector - above input */}
+          <div className="mb-3">
+            <ChatExpertSelector
+              selectedExpert={chatExpert}
+              onExpertChange={(expert) => {
+                setChatExpert(expert);
+                onSkillChange?.(expert);
+              }}
+              isResearchMode={isResearchMode}
+              onResearchModeChange={setIsResearchMode}
+            />
+          </div>
+
           {/* Attached Files Display */}
           {attachedFiles.length > 0 && (
             <div className="mb-3 flex flex-wrap gap-2">
@@ -569,7 +593,9 @@ ${sources.map((s, i) => `${i + 1}. ${s.documentName} - Chunk ${s.chunkIndex} (Si
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyPress}
               placeholder={
-                questionsTemplate && questionsTemplate.length > 0
+                isResearchMode
+                  ? "Ask about methodologies, techniques, or concepts (no document data used)..."
+                  : questionsTemplate && questionsTemplate.length > 0
                   ? "Questions template uploaded - will auto-process when documents are ready..."
                   : documents.length === 0 && attachedFiles.length === 0
                   ? "Upload documents or attach files to ask questions..."
@@ -581,7 +607,7 @@ ${sources.map((s, i) => `${i + 1}. ${s.documentName} - Chunk ${s.chunkIndex} (Si
             />
             <Button
               onClick={handleSend}
-              disabled={!input.trim() || isLoading || isUploading || (documents.length === 0 && attachedFiles.length === 0)}
+              disabled={!input.trim() || isLoading || isUploading || (!isResearchMode && documents.length === 0 && attachedFiles.length === 0)}
               className="bg-gradient-primary hover:opacity-90 transition-opacity"
               size="icon"
             >

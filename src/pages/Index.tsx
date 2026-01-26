@@ -48,7 +48,6 @@ const Index = () => {
   const [questionsTemplate, setQuestionsTemplate] = useState<Record<string, unknown>[] | null>(null);
   const [questionsFileName, setQuestionsFileName] = useLocalStorage<string | null>("questionsFileName", null);
   const [resetTrigger, setResetTrigger] = useState(0);
-  const [suggestedQuestion, setSuggestedQuestion] = useState<string | null>(null);
 
   // Skills state
   const [selectedSkill, setSelectedSkill] = useLocalStorage<Skill | null>("selectedSkill", null);
@@ -164,26 +163,45 @@ const Index = () => {
   const handleReportGenerated = (html: string, data: Record<string, unknown>, isFollowUp?: boolean) => {
     if (isFollowUp && generatedReport) {
       // Cumulative mode: append new content to existing report
-      // Extract the new answer and append it as an additional section
       const newAnswer = (data as { answer?: string }).answer || '';
+      const isResearchContent = (data as { researchMode?: boolean }).researchMode === true;
       const timestamp = new Date().toLocaleTimeString();
 
-      // Create a follow-up section to append
-      const followUpSection = `
+      let sectionToAdd: string;
+
+      if (isResearchContent) {
+        // Research content goes to dedicated "External Research & Validation" section
+        sectionToAdd = `
+        <div class="section research-section" style="margin-top: 30px; border-top: 3px dashed #9c27b0; padding-top: 20px; background: linear-gradient(135deg, #f3e5f5 0%, #fce4ec 100%); border-radius: 8px; padding: 20px;">
+          <h2 style="color: #9c27b0; display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 24px;">🔬</span>
+            EXTERNAL RESEARCH & VALIDATION (${timestamp})
+          </h2>
+          <p style="font-style: italic; color: #666; margin-bottom: 15px; padding: 10px; background: rgba(255,255,255,0.7); border-radius: 4px;">
+            The following external research and validation references the methodology and findings discussed in the document analysis above.
+            This information is sourced from general knowledge and academic literature - no confidential document data was used.
+          </p>
+          ${formatFollowUpContent(newAnswer)}
+        </div>
+      `;
+      } else {
+        // Regular follow-up section (RAG-based)
+        sectionToAdd = `
         <div class="section follow-up-section" style="margin-top: 30px; border-top: 3px dashed #2196f3; padding-top: 20px;">
           <h2 style="color: #2196f3;">FOLLOW-UP RESPONSE (${timestamp})</h2>
           ${formatFollowUpContent(newAnswer)}
         </div>
       `;
+      }
 
-      // Insert the follow-up section before the closing </div></body>
+      // Insert the section before the closing </div></body>
       const insertPoint = generatedReport.lastIndexOf('</div>\n</body>');
       if (insertPoint !== -1) {
-        const updatedReport = generatedReport.slice(0, insertPoint) + followUpSection + generatedReport.slice(insertPoint);
+        const updatedReport = generatedReport.slice(0, insertPoint) + sectionToAdd + generatedReport.slice(insertPoint);
         setGeneratedReport(updatedReport);
       } else {
         // Fallback: just append
-        setGeneratedReport(generatedReport + followUpSection);
+        setGeneratedReport(generatedReport + sectionToAdd);
       }
 
       // Merge report data
@@ -191,12 +209,16 @@ const Index = () => {
         ...prev,
         ...data,
         followUpCount: ((prev as { followUpCount?: number })?.followUpCount || 0) + 1,
+        researchCount: isResearchContent
+          ? ((prev as { researchCount?: number })?.researchCount || 0) + 1
+          : (prev as { researchCount?: number })?.researchCount || 0,
       }));
-    } else {
-      // Initial report: replace completely
+    } else if (html) {
+      // Initial report: replace completely (only if we have HTML)
       setGeneratedReport(html);
       setReportData(data);
     }
+    // If no html and not a follow-up, ignore (can't create initial report from research-only)
   };
 
   // Helper function to format follow-up content (similar to formatAnalysisContent in Edge Function)
@@ -405,7 +427,6 @@ const Index = () => {
                 onSkillSelect={handleSkillSelect}
                 onManageSkills={() => setShowSkillManager(true)}
                 onUploadCustom={handleShowCustomUpload}
-                onQuestionSelect={setSuggestedQuestion}
               />
 
               {/* RAG Configuration Panel */}
@@ -460,8 +481,8 @@ const Index = () => {
                 ragConfig={ragConfig}
                 retrievalConfig={retrievalConfig}
                 outputFormat={outputFormat}
-                suggestedQuestion={suggestedQuestion}
-                onSuggestedQuestionUsed={() => setSuggestedQuestion(null)}
+                selectedSkill={selectedSkill}
+                onSkillChange={handleSkillSelect}
                 onClearChat={() => {
                   setGeneratedReport(null);
                   setReportData(null);

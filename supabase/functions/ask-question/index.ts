@@ -272,10 +272,15 @@ serve(async (req) => {
       retrievalConfig: requestRetrievalConfig,
       outputFormat: requestOutputFormat,
       conversationHistory,  // Array of previous messages for context
+      researchMode,  // Flag to skip RAG and use general knowledge
     } = await req.json();
 
-    if (!question || !documentIds || documentIds.length === 0) {
-      throw new Error("Question and documentIds are required");
+    // Research mode doesn't require documents
+    if (!question) {
+      throw new Error("Question is required");
+    }
+    if (!researchMode && (!documentIds || documentIds.length === 0)) {
+      throw new Error("Document IDs are required (or use research mode)");
     }
 
     // Merge RAG config with defaults
@@ -300,7 +305,8 @@ serve(async (req) => {
     const topK = requestRagConfig?.top_k || ragSettings?.topK || ragConfig.top_k;
     const threshold = requestRagConfig?.similarity_threshold || ragSettings?.threshold || ragConfig.similarity_threshold;
 
-    console.log(`Asking question about ${documentIds.length} document(s): ${question}`);
+    console.log(`Asking question about ${documentIds?.length || 0} document(s): ${question}`);
+    console.log(`Research mode: ${researchMode ? 'YES' : 'NO'}`);
     console.log(`Conversation history: ${conversationHistory ? conversationHistory.length + ' messages' : 'none'}`);
     console.log(`RAG settings: topK=${topK}, threshold=${threshold}`);
     console.log(`RAG skills: hyde=${ragConfig.enable_hyde}, rewrite=${ragConfig.enable_query_rewrite}, decomp=${ragConfig.enable_decomposition}, verify=${ragConfig.enable_verification}, conf=${ragConfig.enable_confidence}, reasoning=${ragConfig.enable_reasoning}`);
@@ -313,6 +319,104 @@ serve(async (req) => {
     // Track skills applied for response metadata
     const skillsApplied: string[] = [];
     const startTime = Date.now();
+
+    // =====================================================
+    // RESEARCH MODE - Direct LLM query without RAG
+    // =====================================================
+    if (researchMode) {
+      console.log("Research Mode: Bypassing RAG, querying general knowledge");
+      skillsApplied.push('Research Mode');
+
+      // Build research prompt
+      let researchPrompt = customPrompt || `You are a Research Assistant specializing in statistical methods, machine learning, and quantitative analysis.
+
+Your role is to help the user explore and understand:
+- Statistical methodologies (regression, time series, classification, etc.)
+- Machine learning techniques and their applications
+- Model validation and performance metrics
+- Industry best practices and standards
+- Alternative approaches and challenger models
+
+IMPORTANT GUIDELINES:
+1. Provide objective, educational responses about methodologies and techniques
+2. When discussing alternatives, explain pros/cons and when each approach is appropriate
+3. Reference academic literature and industry standards where relevant
+4. Focus on helping the user understand concepts they can apply to their own work
+5. If the user describes a methodology, suggest potential challenger approaches or improvements`;
+
+      // Add conversation history for context
+      if (conversationHistory && conversationHistory.length > 0) {
+        researchPrompt += `\n\n## CONVERSATION HISTORY:\n`;
+        for (const msg of conversationHistory) {
+          if (msg.role === 'user') {
+            researchPrompt += `USER: ${msg.content}\n\n`;
+          } else if (msg.role === 'assistant') {
+            const truncatedContent = msg.content.length > 2000
+              ? msg.content.substring(0, 2000) + '... [truncated]'
+              : msg.content;
+            researchPrompt += `ASSISTANT: ${truncatedContent}\n\n`;
+          }
+        }
+        researchPrompt += `---\n\n## CURRENT QUESTION:\n${question}`;
+      } else {
+        researchPrompt += `\n\n## USER QUESTION:\n${question}`;
+      }
+
+      // Make request to Gemini API
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
+
+      let response;
+      try {
+        response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GOOGLE_API_KEY}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: researchPrompt }] }],
+              generationConfig: {
+                temperature: 0.5,
+                maxOutputTokens: 8192,
+              },
+            }),
+            signal: controller.signal,
+          },
+        );
+        clearTimeout(timeoutId);
+      } catch (error: unknown) {
+        clearTimeout(timeoutId);
+        if (error instanceof Error && error.name === "AbortError") {
+          throw new Error("Request timeout: The AI model took too long to respond.");
+        }
+        throw error;
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Gemini API error:", response.status, errorText);
+        throw new Error(`Gemini API error: ${errorText}`);
+      }
+
+      const data = await response.json();
+      const answer = data.candidates?.[0]?.content?.parts?.[0]?.text || "No answer generated";
+      const processingTimeMs = Date.now() - startTime;
+
+      console.log(`Research Mode completed in ${processingTimeMs}ms`);
+
+      return new Response(
+        JSON.stringify({
+          answer: answer,
+          sources: [],
+          skillsApplied: skillsApplied,
+          processingTimeMs: processingTimeMs,
+          researchMode: true,
+        }),
+        {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
 
     // Get document names for reference
     const { data: documents, error: docsError } = await supabase
