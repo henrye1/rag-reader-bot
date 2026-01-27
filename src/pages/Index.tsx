@@ -14,6 +14,8 @@ import { RagAssistantDialog } from "@/components/RagAssistantDialog";
 import { IngestionConfigPanel } from "@/components/IngestionConfigPanel";
 import { ReprocessDialog } from "@/components/ReprocessDialog";
 import { OutputFormatPanel, DEFAULT_OUTPUT_FORMAT, type OutputFormatConfig } from "@/components/OutputFormatPanel";
+import { POPIACompliancePanel, DEFAULT_POPIA_CONFIG, type POPIAConfig } from "@/components/POPIACompliancePanel";
+import { DocumentComparison } from "@/components/DocumentComparison";
 import { FileText, Trash2 } from "lucide-react";
 import { HelpDialog } from "@/components/HelpDialog";
 import { Button } from "@/components/ui/button";
@@ -83,6 +85,19 @@ const Index = () => {
     "outputFormat",
     DEFAULT_OUTPUT_FORMAT
   );
+
+  // POPIA Compliance state
+  const [popiaConfig, setPopiaConfig] = useLocalStorage<POPIAConfig>(
+    "popiaConfig",
+    DEFAULT_POPIA_CONFIG
+  );
+
+  // Last PII detection result for UI display
+  const [lastPIIDetection, setLastPIIDetection] = useState<{
+    hasPII: boolean;
+    riskLevel: 'none' | 'low' | 'medium' | 'high';
+    detectedTypes: string[];
+  } | null>(null);
 
   const { toast } = useToast();
 
@@ -420,6 +435,20 @@ const Index = () => {
                 onReprocess={handleOpenReprocess}
               />
 
+              {/* Document Comparison - show when 2+ documents available */}
+              {readyDocuments.length >= 2 && (
+                <div className="flex justify-end">
+                  <DocumentComparison
+                    documents={documents}
+                    ragConfig={ragConfig}
+                    retrievalConfig={retrievalConfig}
+                    outputFormat={outputFormat}
+                    popiaConfig={popiaConfig}
+                    onReportGenerated={handleReportGenerated}
+                  />
+                </div>
+              )}
+
               {/* Step 2: Select Expert Skill or Upload Custom Prompt */}
               <SkillSelector
                 key={skillsRefreshKey}
@@ -446,6 +475,13 @@ const Index = () => {
               <OutputFormatPanel
                 config={outputFormat}
                 onConfigChange={setOutputFormat}
+              />
+
+              {/* POPIA Compliance Panel */}
+              <POPIACompliancePanel
+                config={popiaConfig}
+                onConfigChange={setPopiaConfig}
+                lastPIIDetection={lastPIIDetection}
               />
 
               {/* Custom Prompt Upload (shown when user chooses to upload custom) */}
@@ -481,12 +517,22 @@ const Index = () => {
                 ragConfig={ragConfig}
                 retrievalConfig={retrievalConfig}
                 outputFormat={outputFormat}
+                popiaConfig={popiaConfig}
                 selectedSkill={selectedSkill}
                 onSkillChange={handleSkillSelect}
                 skillsRefreshKey={skillsRefreshKey}
                 onClearChat={() => {
                   setGeneratedReport(null);
                   setReportData(null);
+                }}
+                onComplianceUpdate={(info) => {
+                  if (info) {
+                    setLastPIIDetection({
+                      hasPII: info.piiDetected,
+                      riskLevel: info.riskLevel,
+                      detectedTypes: info.detectedTypes || [],
+                    });
+                  }
                 }}
               />
             </div>

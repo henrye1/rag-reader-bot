@@ -2,6 +2,14 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { generateQueryEmbedding } from "../_shared/embeddings.ts";
 import { getSupabaseClient, MatchedChunk } from "../_shared/supabase-client.ts";
 import {
+  detectPII,
+  redactPII,
+  prepareForAPICall,
+  createAuditEntry,
+  type PIIDetectionResult,
+  type RedactionOptions,
+} from "../_shared/popia-compliance.ts";
+import {
   generateHypotheticalAnswer,
   rewriteQuery,
   decomposeQuestion,
@@ -32,6 +40,18 @@ const corsHeaders = {
 interface RagSettings {
   topK?: number;
   threshold?: number;
+}
+
+// POPIA compliance config from request
+interface POPIAConfig {
+  enablePIIDetection?: boolean;
+  enableAutoRedaction?: boolean;
+  redactEmails?: boolean;
+  redactPhones?: boolean;
+  redactIDNumbers?: boolean;
+  redactCreditCards?: boolean;
+  showComplianceIndicators?: boolean;
+  logAPIRequests?: boolean;
 }
 
 // Extended RAG config from request
@@ -277,6 +297,8 @@ serve(async (req) => {
       skillType,  // 'expert' | 'generator' | 'meta'
       skillName,  // Name of the skill being used
       skillOutputFormat,  // 'text' | 'markdown' | 'json'
+      // POPIA compliance settings
+      popiaConfig,  // PII detection and redaction options
     } = await req.json();
 
     // Research mode doesn't require documents
@@ -303,6 +325,33 @@ serve(async (req) => {
     const outputFormat: OutputFormatConfig = {
       ...DEFAULT_OUTPUT_FORMAT,
       ...(requestOutputFormat || {}),
+    };
+
+    // POPIA compliance configuration
+    const popia: POPIAConfig = {
+      enablePIIDetection: true,
+      enableAutoRedaction: false,
+      redactEmails: true,
+      redactPhones: true,
+      redactIDNumbers: true,
+      redactCreditCards: true,
+      showComplianceIndicators: true,
+      logAPIRequests: true,
+      ...(popiaConfig || {}),
+    };
+
+    // Track compliance info for response
+    let complianceInfo: {
+      piiDetected: boolean;
+      redactionApplied: boolean;
+      riskLevel: 'none' | 'low' | 'medium' | 'high';
+      detectedTypes: string[];
+      auditLog?: string;
+    } = {
+      piiDetected: false,
+      redactionApplied: false,
+      riskLevel: 'none',
+      detectedTypes: [],
     };
 
     // Support legacy ragSettings format
@@ -818,6 +867,62 @@ Generate a JSON response with:
       contextText = "No relevant content was found in the uploaded documents for this query.";
     }
 
+    // =====================================================
+    // POPIA COMPLIANCE - PII Detection and Redaction
+    // =====================================================
+    if (popia.enablePIIDetection && contextText && contextText.length > 0) {
+      console.log("POPIA: Running PII detection on context...");
+      const piiResult = detectPII(contextText);
+
+      complianceInfo.piiDetected = piiResult.hasPII;
+      complianceInfo.riskLevel = piiResult.riskLevel;
+      complianceInfo.detectedTypes = piiResult.detectedTypes;
+
+      if (piiResult.hasPII) {
+        console.log(`POPIA: PII Detected - Risk Level: ${piiResult.riskLevel}`);
+        console.log(`POPIA: Types found: ${piiResult.detectedTypes.join(', ')}`);
+
+        if (piiResult.matches.length > 0) {
+          for (const match of piiResult.matches) {
+            console.log(`POPIA: - ${match.type}: ${match.count} occurrence(s), sample: ${match.sample}`);
+          }
+        }
+
+        // Apply redaction if enabled
+        if (popia.enableAutoRedaction) {
+          console.log("POPIA: Applying automatic redaction...");
+          contextText = redactPII(contextText, {
+            redactEmails: popia.redactEmails,
+            redactPhones: popia.redactPhones,
+            redactIDNumbers: popia.redactIDNumbers,
+            redactCreditCards: popia.redactCreditCards,
+          });
+          complianceInfo.redactionApplied = true;
+          skillsApplied.push('POPIA Redaction');
+          console.log("POPIA: Redaction applied to context");
+        } else {
+          console.log("POPIA: WARNING - PII detected but redaction is disabled");
+        }
+      } else {
+        console.log("POPIA: No PII detected in context");
+      }
+
+      // Create audit entry if logging is enabled
+      if (popia.logAPIRequests) {
+        const auditEntry = createAuditEntry(
+          'RAG_QUERY',
+          'document_chunks',
+          piiResult,
+          complianceInfo.redactionApplied,
+          contextText.length,
+          'Google Gemini API',
+          'Document Q&A Analysis',
+        );
+        complianceInfo.auditLog = JSON.stringify(auditEntry);
+        console.log("POPIA: Audit entry created");
+      }
+    }
+
     // Build the prompt
     let finalPrompt = '';
 
@@ -1113,6 +1218,8 @@ Generate a structured report with:
       skillType: skillType || 'expert',
       skillOutputFormat: skillOutputFormat || 'text',
       isGeneratorSkill: skillType === 'generator',
+      // POPIA compliance metadata
+      complianceInfo: popia.showComplianceIndicators ? complianceInfo : undefined,
     };
 
     return new Response(

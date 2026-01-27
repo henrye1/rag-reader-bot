@@ -14,6 +14,8 @@ import { ChatExpertSelector, RESEARCH_ASSISTANT } from "@/components/ChatExpertS
 import type { Source, Skill } from "@/integrations/supabase/types";
 import type { RagConfig, RetrievalConfig, VerificationResult, ConfidenceResult } from "@/integrations/supabase/rag-types";
 import type { OutputFormatConfig } from "@/components/OutputFormatPanel";
+import type { POPIAConfig } from "@/components/POPIACompliancePanel";
+import { ComplianceIndicator } from "@/components/POPIACompliancePanel";
 
 // Helper function to strip citations from text for clean export
 const stripCitations = (text: string): string => {
@@ -43,6 +45,13 @@ interface Message {
   originalQuestion?: string;
 }
 
+interface ComplianceInfo {
+  piiDetected: boolean;
+  redactionApplied: boolean;
+  riskLevel: 'none' | 'low' | 'medium' | 'high';
+  detectedTypes?: string[];
+}
+
 interface ChatInterfaceProps {
   documents: UploadedDocument[];
   onReportGenerated: (html: string, data: Record<string, unknown>, isFollowUp?: boolean) => void;
@@ -52,14 +61,16 @@ interface ChatInterfaceProps {
   ragConfig?: Omit<RagConfig, 'id' | 'created_at'>;
   retrievalConfig?: RetrievalConfig;
   outputFormat?: OutputFormatConfig;
+  popiaConfig?: POPIAConfig;
   onClearChat?: () => void;
+  onComplianceUpdate?: (info: ComplianceInfo | null) => void;
   selectedSkill?: Skill | null;
   onSkillChange?: (skill: Skill | null) => void;
   /** Key to trigger skills refresh in ChatExpertSelector */
   skillsRefreshKey?: number;
 }
 
-export const ChatInterface = ({ documents, onReportGenerated, customPrompt, questionsTemplate, resetTrigger, ragConfig, retrievalConfig, outputFormat, onClearChat, selectedSkill, onSkillChange, skillsRefreshKey }: ChatInterfaceProps) => {
+export const ChatInterface = ({ documents, onReportGenerated, customPrompt, questionsTemplate, resetTrigger, ragConfig, retrievalConfig, outputFormat, popiaConfig, onClearChat, onComplianceUpdate, selectedSkill, onSkillChange, skillsRefreshKey }: ChatInterfaceProps) => {
   const [messages, setMessages] = useLocalStorage<Message[]>("chatMessages", []);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -278,12 +289,18 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
           ragConfig: ragConfig,
           retrievalConfig: retrievalConfig,
           outputFormat: outputFormat,
+          popiaConfig: popiaConfig, // POPIA compliance settings
           conversationHistory: conversationHistory.length > 0 ? conversationHistory : undefined,
           researchMode: isResearchMode, // Flag to skip RAG and use general knowledge
         },
       });
 
       if (error) throw error;
+
+      // Update compliance status if callback provided
+      if (onComplianceUpdate && data.complianceInfo) {
+        onComplianceUpdate(data.complianceInfo);
+      }
 
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
