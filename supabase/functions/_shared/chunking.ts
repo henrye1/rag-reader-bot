@@ -221,7 +221,7 @@ Rules:
 3. Return ONLY valid JSON`;
 
     const response = await fetch(
-      `${GEMINI_API_BASE}/gemini-3-flash-preview:generateContent?key=${apiKey}`,
+      `${GEMINI_API_BASE}/gemini-2.5-pro:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -307,7 +307,7 @@ Rules:
 4. Return ONLY the JSON array`;
 
       const response = await fetch(
-        `${GEMINI_API_BASE}/gemini-3-flash-preview:generateContent?key=${apiKey}`,
+        `${GEMINI_API_BASE}/gemini-2.5-pro:generateContent?key=${apiKey}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -389,7 +389,7 @@ ${parent.content}
 Return ONLY the summary, no other text.`;
 
       const response = await fetch(
-        `${GEMINI_API_BASE}/gemini-3-flash-preview:generateContent?key=${apiKey}`,
+        `${GEMINI_API_BASE}/gemini-2.5-pro:generateContent?key=${apiKey}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

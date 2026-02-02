@@ -88,37 +88,46 @@ serve(async (req) => {
 
       console.log("Final MIME type for upload:", mimeType);
 
-      // Upload file to Google's File API
-      const boundary = "----boundary" + Date.now();
-      const uploadResponse = await fetch(
-        `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${GOOGLE_API_KEY}`,
-        {
-          method: "POST",
-          headers: {
-            "X-Goog-Upload-Protocol": "multipart",
-            "Content-Type": `multipart/related; boundary=${boundary}`,
-          },
-          body: (() => {
-            const metadataBlob = new Blob(
-              [JSON.stringify({ file: { display_name: file.name } })],
-              { type: "application/json" }
-            );
-            const fileBlob = new Blob([file], { type: mimeType });
+      // Step 1: Start resumable upload session
+      const uploadUrl = `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${GOOGLE_API_KEY}`;
 
-            const parts = [
-              `--${boundary}\r\n`,
-              'Content-Type: application/json; charset=UTF-8\r\n\r\n',
-              metadataBlob,
-              `\r\n--${boundary}\r\n`,
-              `Content-Type: ${mimeType}\r\n\r\n`,
-              fileBlob,
-              `\r\n--${boundary}--\r\n`,
-            ];
+      const startResponse = await fetch(uploadUrl, {
+        method: "POST",
+        headers: {
+          "X-Goog-Upload-Protocol": "resumable",
+          "X-Goog-Upload-Command": "start",
+          "X-Goog-Upload-Header-Content-Length": file.size.toString(),
+          "X-Goog-Upload-Header-Content-Type": mimeType,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          file: { display_name: file.name },
+        }),
+      });
 
-            return new Blob(parts as BlobPart[]);
-          })(),
-        }
-      );
+      if (!startResponse.ok) {
+        const errorText = await startResponse.text();
+        console.error("Google API upload start error:", startResponse.status, errorText);
+        throw new Error(`Failed to start upload: ${errorText}`);
+      }
+
+      const uploadSessionUrl = startResponse.headers.get("X-Goog-Upload-URL");
+      if (!uploadSessionUrl) {
+        throw new Error("No upload session URL returned");
+      }
+
+      // Step 2: Upload the file content
+      const fileBytes = await file.arrayBuffer();
+
+      const uploadResponse = await fetch(uploadSessionUrl, {
+        method: "POST",
+        headers: {
+          "Content-Length": file.size.toString(),
+          "X-Goog-Upload-Offset": "0",
+          "X-Goog-Upload-Command": "upload, finalize",
+        },
+        body: fileBytes,
+      });
 
       if (!uploadResponse.ok) {
         const errorText = await uploadResponse.text();
@@ -127,12 +136,54 @@ serve(async (req) => {
       }
 
       const uploadData = await uploadResponse.json();
-      const fileId = uploadData.file.name;
+      const fileId = uploadData.file?.name;
+
+      if (!fileId) {
+        throw new Error("No file name returned from upload");
+      }
+
       console.log(`Document uploaded with ID: ${fileId}`);
+
+      // Step 3: Wait for file to be processed
+      console.log("Waiting for file processing...");
+      let fileState = uploadData.file?.state || "PROCESSING";
+      let attempts = 0;
+      const maxAttempts = 30;
+
+      while (fileState === "PROCESSING" && attempts < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        const statusResponse = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/${fileId}?key=${GOOGLE_API_KEY}`
+        );
+
+        if (statusResponse.ok) {
+          const statusData = await statusResponse.json();
+          fileState = statusData.state;
+
+          if (fileState === "FAILED") {
+            throw new Error("File processing failed");
+          }
+
+          if (fileState === "ACTIVE") {
+            console.log(`File active after ${attempts + 1}s`);
+            break;
+          }
+        }
+
+        attempts++;
+        if (attempts % 5 === 0) {
+          console.log(`Still processing... (${attempts}s)`);
+        }
+      }
+
+      if (fileState !== "ACTIVE") {
+        throw new Error(`File processing timeout after ${maxAttempts}s`);
+      }
 
       // Extract text from the document using Gemini
       const extractResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GOOGLE_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GOOGLE_API_KEY}`,
         {
           method: "POST",
           headers: {

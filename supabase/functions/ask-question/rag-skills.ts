@@ -27,7 +27,7 @@ Hypothetical Answer:`;
 
   try {
     const response = await fetch(
-      `${GEMINI_API_BASE}/gemini-3-flash-preview:generateContent?key=${apiKey}`,
+      `${GEMINI_API_BASE}/gemini-2.5-pro:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -77,7 +77,7 @@ Improved Question (return ONLY the improved question, nothing else):`;
 
   try {
     const response = await fetch(
-      `${GEMINI_API_BASE}/gemini-3-flash-preview:generateContent?key=${apiKey}`,
+      `${GEMINI_API_BASE}/gemini-2.5-pro:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -132,7 +132,7 @@ Return ONLY valid JSON, no other text:`;
 
   try {
     const response = await fetch(
-      `${GEMINI_API_BASE}/gemini-3-flash-preview:generateContent?key=${apiKey}`,
+      `${GEMINI_API_BASE}/gemini-2.5-pro:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -202,7 +202,7 @@ Return JSON only:
 
   try {
     const response = await fetch(
-      `${GEMINI_API_BASE}/gemini-3-flash-preview:generateContent?key=${apiKey}`,
+      `${GEMINI_API_BASE}/gemini-2.5-pro:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -274,7 +274,7 @@ Return JSON only:
 
   try {
     const response = await fetch(
-      `${GEMINI_API_BASE}/gemini-3-flash-preview:generateContent?key=${apiKey}`,
+      `${GEMINI_API_BASE}/gemini-2.5-pro:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -504,7 +504,7 @@ Only return the top ${topN} most relevant chunks. Return ONLY valid JSON.`;
 
   try {
     const response = await fetch(
-      `${GEMINI_API_BASE}/gemini-3-flash-preview:generateContent?key=${apiKey}`,
+      `${GEMINI_API_BASE}/gemini-2.5-pro:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -767,7 +767,7 @@ Return JSON:
 
   try {
     const response = await fetch(
-      `${GEMINI_API_BASE}/gemini-3-flash-preview:generateContent?key=${apiKey}`,
+      `${GEMINI_API_BASE}/gemini-2.5-pro:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -825,7 +825,7 @@ Return ONLY the refined query, nothing else.`;
 
   try {
     const response = await fetch(
-      `${GEMINI_API_BASE}/gemini-3-flash-preview:generateContent?key=${apiKey}`,
+      `${GEMINI_API_BASE}/gemini-2.5-pro:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -935,7 +935,7 @@ Return ONLY the transformed query, nothing else.`;
 
   try {
     const response = await fetch(
-      `${GEMINI_API_BASE}/gemini-3-flash-preview:generateContent?key=${apiKey}`,
+      `${GEMINI_API_BASE}/gemini-2.5-pro:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1009,7 +1009,7 @@ export async function expandToParentChunks(
         .select('id, name')
         .in('id', Array.from(documentIds));
 
-      const docMap = new Map(docs?.map((d: any) => [d.id, d.name]) || []);
+      const docMap = new Map<string, string>(docs?.map((d: { id: string; name: string }) => [d.id, d.name]) || []);
 
       // Add parent chunks with lower relevance
       const expanded: RetrievalChunk[] = [...chunks];
