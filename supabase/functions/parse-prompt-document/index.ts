@@ -29,6 +29,12 @@ serve(async (req) => {
 
     console.log(`Processing prompt document: ${file.name}, type: ${file.type}, size: ${file.size}`);
 
+    // Check file size (limit to 20MB for prompt documents)
+    const maxSize = 20 * 1024 * 1024; // 20MB
+    if (file.size > maxSize) {
+      throw new Error(`File too large (${(file.size / 1024 / 1024).toFixed(2)}MB). Maximum size is 20MB.`);
+    }
+
     let promptText = "";
 
     // For plain text files - read directly
@@ -79,8 +85,11 @@ serve(async (req) => {
         mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
         console.log("Detected .docx file, setting MIME type:", mimeType);
       } else if (file.name.endsWith(".doc")) {
+        // Note: Legacy .doc format may have limited support
+        // Recommend converting to .docx for better compatibility
         mimeType = "application/msword";
-        console.log("Detected .doc file, setting MIME type:", mimeType);
+        console.log("Detected .doc file (legacy format), setting MIME type:", mimeType);
+        console.warn("Warning: Legacy .doc format may have limited support. Consider using .docx for better results.");
       } else if (!mimeType) {
         console.error("No MIME type detected and file extension not recognized");
         throw new Error("Could not determine file type");
@@ -89,6 +98,7 @@ serve(async (req) => {
       console.log("Final MIME type for upload:", mimeType);
 
       // Step 1: Start resumable upload session
+      console.log("Step 1: Starting resumable upload session...");
       const uploadUrl = `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${GOOGLE_API_KEY}`;
 
       const startResponse = await fetch(uploadUrl, {
@@ -117,7 +127,9 @@ serve(async (req) => {
       }
 
       // Step 2: Upload the file content
+      console.log("Step 2: Uploading file content...");
       const fileBytes = await file.arrayBuffer();
+      console.log(`File bytes ready: ${fileBytes.byteLength} bytes`);
 
       const uploadResponse = await fetch(uploadSessionUrl, {
         method: "POST",
@@ -145,7 +157,7 @@ serve(async (req) => {
       console.log(`Document uploaded with ID: ${fileId}`);
 
       // Step 3: Wait for file to be processed
-      console.log("Waiting for file processing...");
+      console.log("Step 3: Waiting for file to be processed...");
       let fileState = uploadData.file?.state || "PROCESSING";
       let attempts = 0;
       const maxAttempts = 30;
@@ -181,7 +193,8 @@ serve(async (req) => {
         throw new Error(`File processing timeout after ${maxAttempts}s`);
       }
 
-      // Extract text from the document using Gemini
+      // Step 4: Extract text from the document using Gemini
+      console.log("Step 4: Extracting text using Gemini...");
       const extractResponse = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GOOGLE_API_KEY}`,
         {
@@ -212,12 +225,36 @@ serve(async (req) => {
       if (!extractResponse.ok) {
         const errorText = await extractResponse.text();
         console.error("Document text extraction error:", extractResponse.status, errorText);
-        throw new Error(`Failed to extract text from document: ${errorText}`);
+
+        // Parse error for better message
+        let errorMessage = `Failed to extract text from document (status ${extractResponse.status})`;
+        try {
+          const errorJson = JSON.parse(errorText);
+          if (errorJson.error?.message) {
+            errorMessage = `Failed to extract text: ${errorJson.error.message}`;
+          }
+        } catch (parseErr) {
+          // JSON parsing failed, use default message
+          console.error("Could not parse error response:", parseErr);
+        }
+        throw new Error(errorMessage);
       }
 
       const extractData = await extractResponse.json();
+
+      // Check for blocked content or other issues
+      if (extractData.candidates?.[0]?.finishReason === "SAFETY") {
+        throw new Error("Content was blocked by safety filters. Please check the document content.");
+      }
+
       promptText = extractData.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      console.log("Document text extracted successfully");
+
+      if (!promptText) {
+        console.error("No text in response. Full response:", JSON.stringify(extractData));
+        throw new Error("Could not extract text from document. The document may be empty or in an unsupported format.");
+      }
+
+      console.log(`Document text extracted successfully (${promptText.length} characters)`);
     }
     else {
       throw new Error(`Unsupported file type: ${file.type}. Please use a plain text (.txt), JSON (.json), PDF (.pdf), or Word (.doc, .docx) file.`);
