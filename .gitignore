@@ -29,6 +29,7 @@ backend-py/.venv/
 .env.development
 
 # Editor directories and files
+.claude/
 .vscode/*
 !.vscode/extensions.json
 .vs/
