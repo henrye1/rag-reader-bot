@@ -1,8 +1,8 @@
 # RFD: Document Q&A System with RAG-Powered Analysis
 
 **Project Name:** Gemini RAG Bot - Document Q&A System
-**Version:** 2.0
-**Last Updated:** January 2026
+**Version:** 3.0
+**Last Updated:** March 2026
 **Status:** Production
 
 ---
@@ -14,7 +14,7 @@
 3. [Architecture](#3-architecture)
 4. [Core Features](#4-core-features)
 5. [Database Schema](#5-database-schema)
-6. [API & Edge Functions](#6-api--edge-functions)
+6. [API Endpoints](#6-api-endpoints)
 7. [Configuration System](#7-configuration-system)
 8. [Skills & Expert System](#8-skills--expert-system)
 9. [RAG Pipeline](#9-rag-pipeline)
@@ -22,6 +22,7 @@
 11. [Technology Stack](#11-technology-stack)
 12. [Deployment](#12-deployment)
 13. [Future Roadmap](#13-future-roadmap)
+14. [Architecture Decision Records](#14-architecture-decision-records)
 
 ---
 
@@ -71,20 +72,26 @@ A RAG-powered document analysis system that:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Frontend (React SPA)                      │
+│                   Frontend (React SPA — port 8080)               │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────────┐   │
 │  │  Upload  │ │  Skills  │ │   Chat   │ │  Report Viewer   │   │
 │  │  Module  │ │ Selector │ │Interface │ │                  │   │
 │  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────────┬─────────┘   │
 └───────┼────────────┼────────────┼────────────────┼─────────────┘
         │            │            │                │
+        │       Vite proxy: /api/* → localhost:3001
         ▼            ▼            ▼                ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Supabase Edge Functions                       │
+│              Python FastAPI Backend (port 3001)                   │
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────┐    │
 │  │   upload-    │ │     ask-     │ │    create-skill      │    │
-│  │   document   │ │   question   │ │                      │    │
+│  │   document   │ │   question   │ │    reprocess-doc     │    │
 │  └──────┬───────┘ └──────┬───────┘ └──────────┬───────────┘    │
+│         │                │                    │                  │
+│  ┌──────┴────────────────┴────────────────────┴───────────┐    │
+│  │  Services: embeddings, chunking, parsing, RAG skills,  │    │
+│  │  POPIA compliance, Gemini client, Supabase client       │    │
+│  └─────────────────────────────────────────────────────────┘    │
 └─────────┼────────────────┼────────────────────┼────────────────┘
           │                │                    │
           ▼                ▼                    ▼
@@ -94,7 +101,7 @@ A RAG-powered document analysis system that:
 │  │   Google Gemini  │  │        Supabase PostgreSQL       │    │
 │  │  - Embeddings    │  │  - pgvector for similarity       │    │
 │  │  - Generation    │  │  - Document/Chunk storage        │    │
-│  │  - File parsing  │  │  - Skills & configurations       │    │
+│  │  - PDF fallback  │  │  - Skills & configurations       │    │
 │  └──────────────────┘  └──────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -103,7 +110,8 @@ A RAG-powered document analysis system that:
 
 ```
 Document Upload Flow:
-File → Parse (Gemini/LlamaParse) → Chunk → Embed → Store in pgvector
+File → Parse (pdfplumber/python-docx, Gemini fallback) → Chunk → Embed → Store in pgvector
+       ↑ returns immediately with status:"processing", background task handles the rest
 
 Query Flow:
 Question → [Enhance] → Embed → Vector Search → [Rerank] → Generate Answer
@@ -116,10 +124,11 @@ Question → [Enhance] → Embed → Vector Search → [Rerank] → Generate Ans
 
 | Component | Responsibility | Dependencies |
 |-----------|---------------|--------------|
-| Frontend | UI, state management, user interaction | React, shadcn-ui |
-| Edge Functions | Business logic, AI orchestration | Gemini API, Supabase |
+| Frontend | UI, state management, user interaction | React, shadcn-ui, Vite |
+| Python Backend | Business logic, AI orchestration, file parsing | FastAPI, httpx, pdfplumber, python-docx |
 | PostgreSQL | Data persistence, vector search | pgvector extension |
-| Gemini API | Text generation, embeddings | Google Cloud |
+| Gemini API | Text generation, embeddings, scanned PDF extraction | Google Cloud |
+| Supabase | Database hosting, RLS, RPC functions | Supabase platform |
 
 ---
 
@@ -244,7 +253,7 @@ CREATE TABLE document_chunks (
   chunk_index INTEGER NOT NULL,
   content TEXT NOT NULL,
   token_count INTEGER,
-  embedding VECTOR(768), -- Gemini text-embedding-004
+  embedding VECTOR(768), -- Gemini gemini-embedding-001 (outputDimensionality: 768)
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -359,55 +368,54 @@ $$;
 
 ---
 
-## 6. API & Edge Functions
+## 6. API Endpoints
+
+All endpoints are served by the Python FastAPI backend on port 3001. The frontend Vite dev server proxies `/api/*` requests to the backend.
 
 ### 6.1 upload-document
 
 **Purpose:** Process and index uploaded documents
 
-**Endpoint:** `POST /functions/v1/upload-document`
+**Endpoint:** `POST /api/upload-document`
 
-**Request:**
-```typescript
-{
-  file: File,
-  ingestionConfig: {
-    chunkingStrategy: 'fixed' | 'semantic' | 'proposition' | 'hierarchical',
-    chunkSize: number,
-    chunkOverlap: number,
-    enableContextEnrichment: boolean,
-    enableMetadataExtraction: boolean,
-    enableSummaryChunks: boolean,
-    enableEntityExtraction: boolean,
-    preserveTablesLists: boolean,
-    parserPreference: 'auto' | 'llamaparse' | 'gemini'
-  }
+**Request:** Multipart form data
+```
+file: File (PDF, DOCX, TXT, JSON)
+ingestionConfig: JSON string (optional) {
+  chunking_strategy: 'fixed' | 'semantic' | 'proposition' | 'hierarchical',
+  chunk_size: number,
+  chunk_overlap: number,
+  enable_context_enrichment: boolean,
+  enable_metadata_extraction: boolean,
+  enable_summary_chunks: boolean,
+  extract_entities: boolean,
+  preserve_tables: boolean,
+  preserve_lists: boolean
 }
 ```
 
 **Response:**
-```typescript
+```json
 {
-  success: boolean,
-  documentId: string,
-  totalChunks: number,
-  totalCharacters: number,
-  processingTimeMs: number
+  "documentId": "uuid",
+  "displayName": "filename.pdf",
+  "status": "processing"
 }
 ```
 
-**Processing Pipeline:**
-1. Parse file (LlamaParse or Gemini)
+**Processing Pipeline (background task):**
+1. Parse file (pdfplumber for PDF, python-docx for DOCX, Gemini fallback for scanned PDFs)
 2. Extract and clean text
 3. Apply chunking strategy
-4. Generate embeddings (batch)
-5. Store chunks with vectors
+4. Generate embeddings in batches of 100 (Gemini `gemini-embedding-001`, 768 dims)
+5. Store chunks with vectors in batches of 50
+6. Update document status to `ready`
 
 ### 6.2 ask-question
 
 **Purpose:** Answer questions using RAG
 
-**Endpoint:** `POST /functions/v1/ask-question`
+**Endpoint:** `POST /api/ask-question`
 
 **Request:**
 ```typescript
@@ -476,7 +484,7 @@ $$;
 
 **Purpose:** AI-powered skill generation
 
-**Endpoint:** `POST /functions/v1/create-skill`
+**Endpoint:** `POST /api/create-skill`
 
 **Request:**
 ```typescript
@@ -509,7 +517,7 @@ $$;
 
 **Purpose:** Re-chunk existing document with new configuration
 
-**Endpoint:** `POST /functions/v1/reprocess-document`
+**Endpoint:** `POST /api/reprocess-document`
 
 **Request:**
 ```typescript
@@ -523,7 +531,7 @@ $$;
 
 **Purpose:** Extract text from uploaded prompt files
 
-**Endpoint:** `POST /functions/v1/parse-prompt-document`
+**Endpoint:** `POST /api/parse-prompt-document`
 
 **Request:**
 ```typescript
@@ -648,11 +656,12 @@ When analyzing documents, evaluate:
 └─────────┘    └─────────┘    └─────────┘    └─────────┘    └─────────┘
                    │              │              │
                    ▼              ▼              ▼
-              LlamaParse     Strategy:      Gemini API
-              or Gemini      - Fixed        768-dim vectors
-                             - Semantic     Batch processing
-                             - Proposition
-                             - Hierarchical
+              pdfplumber     Strategy:      Gemini API
+              python-docx    - Fixed        gemini-embedding-001
+              (Gemini        - Semantic     768 dims (outputDimensionality)
+               fallback      - Proposition  Batch: 100/request
+               for scanned   - Hierarchical
+               PDFs)
 ```
 
 ### 9.2 Query Processing Pipeline
@@ -679,10 +688,11 @@ When analyzing documents, evaluate:
 
 ### 9.3 Embedding Strategy
 
-- **Model:** Gemini `text-embedding-004`
-- **Dimensions:** 768
-- **Batch Size:** Up to 100 texts per request
-- **Similarity:** Cosine distance via pgvector
+- **Model:** Gemini `gemini-embedding-001` (successor to `text-embedding-004`, retired Feb 2026)
+- **Dimensions:** 768 (via `outputDimensionality` parameter; model default is 3072)
+- **Task types:** `RETRIEVAL_DOCUMENT` for indexing, `RETRIEVAL_QUERY` for search queries
+- **Batch Size:** Up to 100 texts per request (recursive batching for larger sets)
+- **Similarity:** Cosine distance via pgvector (`<=>` operator)
 
 ### 9.4 Retrieval Strategies
 
@@ -811,20 +821,31 @@ Index.tsx
 
 ### 11.3 Backend
 
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| Python | 3.13 | Runtime |
+| FastAPI | 0.115.6 | Web framework |
+| Uvicorn | 0.34.0 | ASGI server |
+| supabase-py | 2.28.0 | Supabase client |
+| httpx | 0.28.1 | HTTP client (Gemini API calls) |
+| pdfplumber | 0.11.4 | PDF text extraction |
+| python-docx | 1.1.2 | DOCX text extraction |
+
+### 11.4 Data Layer
+
 | Technology | Purpose |
 |------------|---------|
-| Supabase | BaaS platform |
-| PostgreSQL | Database |
-| pgvector | Vector similarity |
-| Deno | Edge function runtime |
-| Google Gemini | AI capabilities |
+| Supabase | Database hosting, auth, RPC functions |
+| PostgreSQL | Relational database |
+| pgvector | Vector similarity search |
 
-### 11.4 External Services
+### 11.5 External Services
 
 | Service | Purpose |
 |---------|---------|
-| Google Gemini API | Text generation, embeddings, file parsing |
-| LlamaParse (optional) | Advanced document parsing |
+| Google Gemini API (`gemini-2.5-pro`) | Text generation, answer synthesis, skill creation |
+| Google Gemini API (`gemini-2.5-flash`) | Scanned PDF text extraction (fallback) |
+| Google Gemini API (`gemini-embedding-001`) | Embedding generation (768 dims) |
 
 ---
 
@@ -833,40 +854,47 @@ Index.tsx
 ### 12.1 Environment Variables
 
 ```bash
-# Frontend (Vite)
-VITE_SUPABASE_PROJECT_ID=your-project-id
-VITE_SUPABASE_PUBLISHABLE_KEY=your-anon-key
-VITE_SUPABASE_URL=https://your-project.supabase.co
+# The frontend has NO environment variables.
+# All configuration lives in the Python backend.
 
-# Edge Functions (Supabase Secrets)
+# Python Backend — backend-py/.env
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 GOOGLE_API_KEY=your-gemini-api-key
-LLAMAPARSE_API_KEY=your-llamaparse-key  # Optional
+PORT=3001
 ```
 
 ### 12.2 Database Setup
 
 1. Create Supabase project
 2. Enable pgvector extension
-3. Run migration scripts:
-   - `20260127000000_add_skill_types.sql`
-   - `20260127100000_seed_generator_skills.sql`
+3. Run migration scripts in `supabase/migrations/`
 
-### 12.3 Edge Function Deployment
+### 12.3 Backend Deployment
 
 ```bash
-# Deploy all functions
-supabase functions deploy upload-document
-supabase functions deploy ask-question
-supabase functions deploy create-skill
-supabase functions deploy reprocess-document
-supabase functions deploy parse-prompt-document
+# Install Python dependencies
+cd backend-py
+python -m venv .venv
+.venv/Scripts/activate   # Windows (.venv/bin/activate on Linux/Mac)
+pip install -r requirements.txt
+
+# Start the backend
+python main.py   # Runs on port 3001
 ```
 
-### 12.4 Platform Integration
+### 12.4 Frontend Development
 
-The project is integrated with Lovable platform:
+```bash
+cd frontend
+npm install
+npm run dev   # Runs on port 8080, proxies /api/* to :3001
+```
+
+### 12.5 Platform Integration
+
+The project was originally scaffolded with Lovable platform:
 - **Project URL:** `https://lovable.dev/projects/13af4cb5-9f84-4979-8adc-a9ad76a849ff`
-- **Auto-deployment:** Git sync enabled
 
 ---
 
@@ -922,9 +950,83 @@ The project is integrated with Lovable platform:
 
 ---
 
+## 14. Architecture Decision Records
+
+### ADR-001: Migration from Supabase Edge Functions to Python FastAPI Backend
+
+**Date:** March 2026
+**Status:** Accepted
+
+**Context:** Supabase Edge Functions (Deno runtime) frequently hit wall-time limits when processing large document uploads. The chunking, embedding, and storage pipeline for a single document could exceed the function's maximum execution time, causing uploads to fail silently.
+
+**Decision:** Replace Supabase Edge Functions with a Python FastAPI backend running on port 3001. The backend uses FastAPI `BackgroundTasks` for fire-and-forget document processing, avoiding timeout issues entirely.
+
+**Consequences:**
+- Upload and reprocess endpoints return immediately; processing happens in the background
+- No Deno/Supabase function deployment needed; backend runs as a standard Python process
+- Supabase is retained as database only (PostgreSQL + pgvector)
+- The old Node.js Express backend (`backend/`) and `supabase/functions/` directory have been deleted
+
+---
+
+### ADR-002: Native Document Parsing with Gemini Fallback
+
+**Date:** March 2026
+**Status:** Accepted
+
+**Context:** The original system used the Gemini Files API for all document parsing, which added network latency, LLM cost, and API rate limit pressure for every upload. Most documents are text-based PDFs or DOCX files that don't need AI to extract text.
+
+**Decision:** Use native Python libraries as the primary parsing layer:
+- `pdfplumber` for text-based PDFs (including table extraction)
+- `python-docx` for DOCX files (including table extraction)
+- Direct UTF-8 decode for TXT and JSON files
+- **Gemini `gemini-2.5-flash` fallback** for scanned/image-based PDFs where pdfplumber finds no text
+
+**Consequences:**
+- Text-based document parsing is instant (no network calls)
+- Scanned PDFs still work via Gemini's vision capabilities
+- Reduced API costs for the majority of uploads
+- No dependency on external parsing services (LlamaParse removed as requirement)
+
+---
+
+### ADR-003: Embedding Model Migration to `gemini-embedding-001`
+
+**Date:** March 2026
+**Status:** Accepted
+
+**Context:** Google retired the `text-embedding-004` model from the Gemini API in February 2026. The replacement model `gemini-embedding-001` defaults to 3072 dimensions, but the existing database uses `vector(768)` columns.
+
+**Decision:** Use `gemini-embedding-001` with `outputDimensionality: 768` to maintain compatibility with the existing database schema. Use distinct task types: `RETRIEVAL_DOCUMENT` for indexing and `RETRIEVAL_QUERY` for search queries.
+
+**Consequences:**
+- Zero database migration needed (768-dim vectors remain compatible)
+- Embedding quality may differ slightly from the retired model
+- All existing embeddings remain valid and searchable
+- New documents are embedded with the same dimensionality
+
+---
+
+### ADR-004: Supabase Client Library Upgrade (v2.11.0 to v2.28.0)
+
+**Date:** March 2026
+**Status:** Accepted
+
+**Context:** Supabase introduced a new API key format (`sb_publishable_...` / `sb_secret_...`) replacing the older JWT-style keys. The `supabase-py` v2.11.0 library did not recognize the new format and rejected it as "Invalid API key".
+
+**Decision:** Upgrade `supabase-py` from v2.11.0 to v2.28.0 which supports the new key format.
+
+**Consequences:**
+- Backend can authenticate with both old and new Supabase key formats
+- Several transitive dependencies were also upgraded
+- `requirements.txt` updated to pin `supabase==2.28.0`
+
+---
+
 **Document Version History:**
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | 2025-12 | System | Initial release |
 | 2.0 | 2026-01 | System | Second Brain features, Generator Skills |
+| 3.0 | 2026-03 | System | Python FastAPI backend migration, native document parsing, embedding model update, ADRs |
