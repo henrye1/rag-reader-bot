@@ -21,20 +21,27 @@ A RAG-powered document analysis system with advanced vector search capabilities.
 
 ### Prerequisites
 
-- Node.js 18+ installed
+- Node.js 18+ and npm (for the frontend)
+- Python 3.11+ (for the backend)
 - Supabase project with pgvector extension enabled
-- Google Gemini API key configured
+- Google Gemini API key
 
 ### Running the Application
 
-1. **Install dependencies:**
+1. **Start the Python backend:**
    ```bash
-   npm install
+   cd backend-py
+   python -m venv .venv
+   .venv/Scripts/activate       # Windows (.venv/bin/activate on Linux/Mac)
+   pip install -r requirements.txt
+   python main.py               # Runs on port 3001
    ```
 
-2. **Start the development server:**
+2. **Start the frontend (in a separate terminal):**
    ```bash
-   npm run dev
+   cd frontend
+   npm install
+   npm run dev                  # Runs on port 8080
    ```
 
 3. **Open your browser:**
@@ -42,7 +49,7 @@ A RAG-powered document analysis system with advanced vector search capabilities.
 
 ### Environment Setup
 
-Ensure your Supabase Edge Functions have the `GOOGLE_API_KEY` environment variable set.
+Configure `backend-py/.env` with your `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `GOOGLE_API_KEY`.
 
 ---
 

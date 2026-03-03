@@ -1,73 +1,88 @@
-# Welcome to your Lovable project
+# Gemini RAG Bot - Document Q&A System
 
-## Project info
+RAG-powered Document Q&A system built with React + Python FastAPI + Supabase (pgvector). Upload documents, ask questions, get AI-generated answers with citations.
 
-**URL**: https://lovable.dev/projects/13af4cb5-9f84-4979-8adc-a9ad76a849ff
+Originally scaffolded with [Lovable](https://lovable.dev/projects/13af4cb5-9f84-4979-8adc-a9ad76a849ff).
 
-## How can I edit this code?
+## Features
 
-There are several ways of editing your application.
+- **Multi-format document upload** (PDF, DOCX, TXT, JSON) with native parsing + Gemini fallback for scanned PDFs
+- **Advanced RAG pipeline**: HyDE, query rewriting, decomposition, verification, confidence scoring
+- **Configurable chunking**: fixed, semantic, proposition, hierarchical strategies
+- **Advanced retrieval**: fusion search (RRF/weighted), reranking, self-RAG, corrective RAG
+- **Expert skills system**: pre-built and AI-generated domain-specific prompts
+- **POPIA compliance**: PII detection and redaction for South African regulations
+- **Professional reports**: audit-quality HTML output with citations
 
-**Use Lovable**
+## Architecture
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/13af4cb5-9f84-4979-8adc-a9ad76a849ff) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+```
+rag-reader-bot/
+├── frontend/        React + Vite + TypeScript (port 8080)
+├── backend-py/      Python FastAPI backend (port 3001)
+├── supabase/        Migrations and config (database only)
+├── RFD.md           Design document with ADRs
+└── CLAUDE.md        AI assistant instructions
 ```
 
-**Edit a file directly in GitHub**
+## Quick Start
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+### Prerequisites
 
-**Use GitHub Codespaces**
+- Node.js 18+ and npm
+- Python 3.11+
+- Supabase project with pgvector enabled
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+### Setup
 
-## What technologies are used for this project?
+```bash
+# 1. Clone and configure environment
+cp backend-py/.env.example backend-py/.env   # Add your keys
+cp frontend/.env.example frontend/.env       # Add Supabase public keys
 
-This project is built with:
+# 2. Install and start Python backend
+cd backend-py
+python -m venv .venv
+.venv/Scripts/activate       # Windows
+# source .venv/bin/activate  # Linux/Mac
+pip install -r requirements.txt
+python main.py               # Runs on port 3001
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+# 3. In a separate terminal, start frontend
+cd frontend
+npm install
+npm run dev                  # Runs on port 8080, proxies /api to :3001
+```
 
-## How can I deploy this project?
+### Environment Variables
 
-Simply open [Lovable](https://lovable.dev/projects/13af4cb5-9f84-4979-8adc-a9ad76a849ff) and click on Share -> Publish.
+**Backend** (`backend-py/.env`):
+```
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+GOOGLE_API_KEY=your-gemini-api-key
+PORT=3001
+```
 
-## Can I connect a custom domain to my Lovable project?
+**Frontend** (`frontend/.env`):
+```
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your-anon-key
+VITE_SUPABASE_PROJECT_ID=your-project-id
+```
 
-Yes, you can!
+## Tech Stack
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui |
+| Backend | Python 3.13, FastAPI, Uvicorn, httpx |
+| Database | Supabase (PostgreSQL + pgvector) |
+| AI | Google Gemini (gemini-2.5-pro, gemini-embedding-001) |
+| Document Parsing | pdfplumber, python-docx, Gemini fallback |
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+## Documentation
+
+- [CLAUDE.md](CLAUDE.md) — Developer guide and codebase conventions
+- [RFD.md](RFD.md) — Full design document with architecture, API specs, and ADRs
+- [USER_MANUAL.md](USER_MANUAL.md) — End-user documentation
