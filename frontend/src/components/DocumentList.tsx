@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { UploadedDocument } from "@/pages/Index";
-import { ScrollArea } from "@/components/ui/scroll-area";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -90,10 +90,10 @@ export const DocumentList = ({ documents, onRemove, onClearAll, onReprocess }: D
   };
 
   return (
-    <Card className="shadow-soft">
+    <Card className="shadow-soft overflow-hidden">
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
             <CardTitle>Indexed Documents</CardTitle>
             <CardDescription>
               {readyCount} of {documents.length} document(s) ready for RAG search
@@ -104,10 +104,10 @@ export const DocumentList = ({ documents, onRemove, onClearAll, onReprocess }: D
               <Button
                 variant="outline"
                 size="sm"
-                className="gap-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                className="gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10 flex-shrink-0"
               >
                 <Trash2 className="h-4 w-4" />
-                Clear All Documents
+                <span className="hidden sm:inline">Clear All</span>
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
@@ -153,63 +153,60 @@ export const DocumentList = ({ documents, onRemove, onClearAll, onReprocess }: D
         </div>
       </CardHeader>
       <CardContent>
-        <ScrollArea className="h-[300px]">
-          <div className="space-y-2 pr-2">
-            {documents.map((doc) => (
-              <div
-                key={doc.id}
-                className="p-3 rounded-lg bg-muted hover:bg-muted/80 transition-colors group"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 relative">
-                    <FileText className="h-5 w-5 text-primary" />
-                    <div className="absolute -bottom-1 -right-1">
-                      {getStatusIcon(doc.status)}
-                    </div>
+        <div className="max-h-[300px] overflow-y-auto space-y-2">
+          {documents.map((doc) => (
+            <div
+              key={doc.id}
+              className="p-3 rounded-lg bg-muted hover:bg-muted/80 transition-colors group"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 relative">
+                  <FileText className="h-5 w-5 text-primary" />
+                  <div className="absolute -bottom-1 -right-1">
+                    {getStatusIcon(doc.status)}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{doc.name}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(doc.uploadedAt).toLocaleDateString()}
-                      </p>
-                      {getStatusBadge(doc)}
-                    </div>
-                    {doc.status === 'error' && doc.errorMessage && (
-                      <p className="text-xs text-red-500 mt-1 truncate" title={doc.errorMessage}>
-                        {doc.errorMessage}
-                      </p>
-                    )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate" title={doc.name}>{doc.name}</p>
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(doc.uploadedAt).toLocaleDateString()}
+                    </p>
+                    {getStatusBadge(doc)}
                   </div>
+                  {doc.status === 'error' && doc.errorMessage && (
+                    <p className="text-xs text-red-500 mt-1 truncate" title={doc.errorMessage}>
+                      {doc.errorMessage}
+                    </p>
+                  )}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => onRemove(doc.id)}
+                  title="Remove document"
+                  className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              {onReprocess && doc.status === 'ready' && (
+                <div className="mt-2 pt-2 border-t border-border/50">
                   <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => onRemove(doc.id)}
-                    title="Remove document"
-                    className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onReprocess(doc)}
+                    title="Reprocess with different chunking settings"
+                    className="h-7 px-3 text-xs gap-1.5 w-full"
                   >
-                    <X className="h-4 w-4" />
+                    <RefreshCw className="h-3 w-3 flex-shrink-0" />
+                    Reprocess
                   </Button>
                 </div>
-                {/* Reprocess button on separate row */}
-                {onReprocess && doc.status === 'ready' && (
-                  <div className="mt-2 pt-2 border-t border-border/50">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => onReprocess(doc)}
-                      title="Reprocess with different chunking settings"
-                      className="h-7 px-3 text-xs gap-1.5 w-full"
-                    >
-                      <RefreshCw className="h-3 w-3" />
-                      Reprocess with different settings
-                    </Button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </ScrollArea>
+              )}
+            </div>
+          ))}
+        </div>
       </CardContent>
     </Card>
   );

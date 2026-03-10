@@ -3,6 +3,7 @@
 Supports: Fixed, Semantic, Proposition, and Hierarchical chunking.
 """
 
+import asyncio
 import re
 import math
 from services.gemini_client import generate_content, extract_json
@@ -204,10 +205,8 @@ Rules:
 
 async def _proposition_chunking(text: str, opts: dict, api_key: str) -> list[dict]:
     base_chunks = _fixed_chunking(text, {**opts, "chunkSize": opts["chunkSize"] * 2})
-    all_props: list[dict] = []
-    prop_idx = 0
 
-    for base in base_chunks:
+    async def _extract_props(base: dict) -> list[dict]:
         try:
             prompt = f"""Extract atomic propositions (single facts) from this text. Each proposition should be a self-contained statement.
 
@@ -227,20 +226,32 @@ Rules:
             parsed = extract_json(response_text)
 
             if parsed and isinstance(parsed, list):
-                for prop in parsed:
-                    if isinstance(prop, str) and prop.strip():
-                        all_props.append({
-                            "content": prop.strip(),
-                            "index": prop_idx,
-                            "startChar": base["startChar"],
-                            "endChar": base["endChar"],
-                            "tokenCount": estimate_tokens(prop),
-                        })
-                        prop_idx += 1
+                return [
+                    {
+                        "content": prop.strip(),
+                        "startChar": base["startChar"],
+                        "endChar": base["endChar"],
+                        "tokenCount": estimate_tokens(prop),
+                    }
+                    for prop in parsed
+                    if isinstance(prop, str) and prop.strip()
+                ]
         except Exception as e:
             print(f"Proposition extraction error: {e}")
-            all_props.append({**base, "index": prop_idx})
-            prop_idx += 1
+
+        return [{"content": base["content"], "startChar": base["startChar"], "endChar": base["endChar"], "tokenCount": base["tokenCount"]}]
+
+    # Run all proposition extractions concurrently (batches of 5 to avoid rate limits)
+    all_props: list[dict] = []
+    for i in range(0, len(base_chunks), 5):
+        batch = base_chunks[i : i + 5]
+        results = await asyncio.gather(*[_extract_props(b) for b in batch])
+        for props in results:
+            all_props.extend(props)
+
+    # Assign sequential indices
+    for idx, prop in enumerate(all_props):
+        prop["index"] = idx
 
     if all_props:
         print(f"Proposition chunking created {len(all_props)} chunks")
@@ -255,11 +266,8 @@ Rules:
 
 async def _hierarchical_chunking(text: str, opts: dict, api_key: str) -> list[dict]:
     parent_chunks = _fixed_chunking(text, {**opts, "chunkSize": opts["chunkSize"] * 3, "chunkOverlap": 0})
-    all_chunks: list[dict] = []
 
-    for parent_idx, parent in enumerate(parent_chunks):
-        # Generate summary for parent
-        parent_summary = parent["content"][:500]
+    async def _summarize_parent(parent: dict) -> str:
         try:
             prompt = f"""Summarize this text in 2-3 sentences, capturing the key points:
 
@@ -269,11 +277,21 @@ Return ONLY the summary, no other text."""
 
             summary = await generate_content(prompt, temperature=0.2, max_output_tokens=200, api_key=api_key)
             if summary:
-                parent_summary = summary.strip()
+                return summary.strip()
         except Exception as e:
             print(f"Summary generation error: {e}")
+        return parent["content"][:500]
 
-        # Add parent chunk (summary)
+    # Generate all parent summaries concurrently (batches of 5 to avoid rate limits)
+    summaries: list[str] = []
+    for i in range(0, len(parent_chunks), 5):
+        batch = parent_chunks[i : i + 5]
+        batch_summaries = await asyncio.gather(*[_summarize_parent(p) for p in batch])
+        summaries.extend(batch_summaries)
+
+    # Build the final chunk list
+    all_chunks: list[dict] = []
+    for parent_idx, (parent, parent_summary) in enumerate(zip(parent_chunks, summaries)):
         all_chunks.append({
             "content": parent_summary,
             "index": len(all_chunks),
@@ -283,7 +301,6 @@ Return ONLY the summary, no other text."""
             "isParent": True,
         })
 
-        # Create child chunks from parent content
         child_chunks = _fixed_chunking(parent["content"], {**opts, "chunkSize": opts["chunkSize"]})
         for child in child_chunks:
             all_chunks.append({

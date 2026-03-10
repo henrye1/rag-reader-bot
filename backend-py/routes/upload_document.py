@@ -1,5 +1,6 @@
 """POST /api/upload-document — File upload with background processing."""
 
+import asyncio
 import os
 import time
 from fastapi import APIRouter, UploadFile, File, Form, BackgroundTasks
@@ -101,8 +102,10 @@ async def _process_document(
     supabase = get_supabase_client()
 
     try:
-        # Extract text using native Python parsing
-        extracted_text = parse_document(file_bytes, filename, content_type)
+        # Extract text using native Python parsing (run in thread to avoid blocking event loop)
+        extracted_text = await asyncio.to_thread(parse_document, file_bytes, filename, content_type)
+        # Free raw file bytes immediately — no longer needed
+        del file_bytes
         extracted_text = clean_text(extracted_text)
 
         if not extracted_text or len(extracted_text) < 10:
@@ -140,41 +143,49 @@ async def _process_document(
         if not chunks:
             raise RuntimeError("No chunks created from document")
 
-        # Generate embeddings
+        total_chars = len(extracted_text)
+        # Free extracted text — it's already stored in DB
+        del extracted_text
+
+        # Embed and insert in streaming batches to limit peak memory.
+        # Each batch: embed N chunks → build records → insert to DB → free.
         embed_start = time.time()
-        print(f"[EMBEDDINGS] Generating for {len(chunks)} chunks...")
-        embeddings = await generate_embeddings_batch(
-            [c["content"] for c in chunks], api_key
-        )
-        print(f"[EMBEDDINGS] Generated {len(embeddings)} embeddings in {int((time.time() - embed_start) * 1000)}ms")
+        BATCH_SIZE = 25
+        total_inserted = 0
+        print(f"[EMBEDDINGS] Generating and inserting in batches of {BATCH_SIZE}...")
 
-        # Insert chunks with embeddings in batches of 50
-        chunk_records = [
-            {
-                "document_id": document_id,
-                "chunk_index": chunk["index"],
-                "content": chunk["content"],
-                "token_count": chunk["tokenCount"],
-                "embedding": f"[{','.join(str(v) for v in embeddings[i])}]",
-            }
-            for i, chunk in enumerate(chunks)
-        ]
+        for i in range(0, len(chunks), BATCH_SIZE):
+            batch_chunks = chunks[i : i + BATCH_SIZE]
+            batch_texts = [c["content"] for c in batch_chunks]
 
-        for i in range(0, len(chunk_records), 50):
-            batch = chunk_records[i : i + 50]
-            resp = supabase.table("document_chunks").insert(batch).execute()
+            batch_embeddings = await generate_embeddings_batch(batch_texts, api_key)
 
-        print(f"Inserted {len(chunk_records)} chunks into database")
+            batch_records = [
+                {
+                    "document_id": document_id,
+                    "chunk_index": chunk["index"],
+                    "content": chunk["content"],
+                    "token_count": chunk["tokenCount"],
+                    "embedding": f"[{','.join(str(v) for v in batch_embeddings[j])}]",
+                }
+                for j, chunk in enumerate(batch_chunks)
+            ]
+
+            supabase.table("document_chunks").insert(batch_records).execute()
+            total_inserted += len(batch_records)
+            print(f"[EMBEDDINGS] Batch {i // BATCH_SIZE + 1}: embedded and inserted {len(batch_records)} chunks")
+
+        print(f"[EMBEDDINGS] Done in {int((time.time() - embed_start) * 1000)}ms")
 
         # Update document status to ready
         supabase.table("documents").update({
             "status": "ready",
             "total_chunks": len(chunks),
-            "total_characters": len(extracted_text),
+            "total_characters": total_chars,
         }).eq("id", document_id).execute()
 
         total_ms = int((time.time() - start_time) * 1000)
-        print(f"[DONE] Document {document_id} ready with {len(chunks)} chunks in {total_ms}ms")
+        print(f"[DONE] Document {document_id} ready with {total_inserted} chunks in {total_ms}ms")
 
     except Exception as e:
         print(f"Processing error: {e}")

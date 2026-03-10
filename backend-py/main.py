@@ -19,6 +19,30 @@ from routes.configs import router as configs_router
 
 app = FastAPI()
 
+
+@app.on_event("startup")
+async def recover_stale_processing():
+    """Mark documents stuck in 'processing' as error on startup.
+
+    If Render restarted the process mid-task, these documents will never
+    finish.  Mark them so the user can retry.
+    """
+    try:
+        from services.supabase_client import get_supabase_client
+
+        supabase = get_supabase_client()
+        resp = (
+            supabase.table("documents")
+            .update({"status": "error", "error_message": "Processing interrupted by server restart. Please re-upload or reprocess."})
+            .eq("status", "processing")
+            .execute()
+        )
+        if resp.data:
+            print(f"[STARTUP] Recovered {len(resp.data)} stale processing document(s)")
+    except Exception as e:
+        print(f"[STARTUP] Stale processing recovery failed: {e}")
+
+
 # CORS
 app.add_middleware(
     CORSMiddleware,

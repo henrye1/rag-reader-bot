@@ -91,29 +91,33 @@ async def _reprocess_in_background(document_id: str, document: dict, config: dic
         if not chunks:
             raise RuntimeError("No chunks created from document")
 
-        print(f"Generating embeddings for {len(chunks)} chunks...")
-        embeddings = await generate_embeddings_batch(
-            [c["content"] for c in chunks], api_key
-        )
-
-        chunk_records = [
-            {
-                "document_id": document_id,
-                "chunk_index": chunk["index"],
-                "content": chunk["content"],
-                "token_count": chunk["tokenCount"],
-                "embedding": f"[{','.join(str(v) for v in embeddings[i])}]",
-            }
-            for i, chunk in enumerate(chunks)
-        ]
-
-        # Delete old chunks
+        # Delete old chunks before inserting new ones
         supabase.table("document_chunks").delete().eq("document_id", document_id).execute()
 
-        # Insert new chunks in batches
-        for i in range(0, len(chunk_records), 50):
-            batch = chunk_records[i : i + 50]
-            supabase.table("document_chunks").insert(batch).execute()
+        # Embed and insert in streaming batches to limit peak memory
+        BATCH_SIZE = 25
+        total_inserted = 0
+        print(f"Generating embeddings and inserting in batches of {BATCH_SIZE}...")
+
+        for i in range(0, len(chunks), BATCH_SIZE):
+            batch_chunks = chunks[i : i + BATCH_SIZE]
+            batch_texts = [c["content"] for c in batch_chunks]
+
+            batch_embeddings = await generate_embeddings_batch(batch_texts, api_key)
+
+            batch_records = [
+                {
+                    "document_id": document_id,
+                    "chunk_index": chunk["index"],
+                    "content": chunk["content"],
+                    "token_count": chunk["tokenCount"],
+                    "embedding": f"[{','.join(str(v) for v in batch_embeddings[j])}]",
+                }
+                for j, chunk in enumerate(batch_chunks)
+            ]
+
+            supabase.table("document_chunks").insert(batch_records).execute()
+            total_inserted += len(batch_records)
 
         # Update document metadata
         from datetime import datetime, timezone
@@ -126,7 +130,7 @@ async def _reprocess_in_background(document_id: str, document: dict, config: dic
             "last_reprocessed_at": datetime.now(timezone.utc).isoformat(),
         }).eq("id", document_id).execute()
 
-        print(f"Document {document_id} reprocessed successfully with {len(chunks)} chunks")
+        print(f"Document {document_id} reprocessed successfully with {total_inserted} chunks")
 
     except Exception as e:
         print(f"Reprocessing error: {e}")

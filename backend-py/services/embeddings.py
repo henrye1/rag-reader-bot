@@ -55,17 +55,18 @@ async def generate_query_embedding(query: str, api_key: str | None = None) -> li
 
 
 async def generate_embeddings_batch(texts: list[str], api_key: str | None = None) -> list[list[float]]:
-    """Batch embedding for efficiency (up to 100 texts per call, recursive for larger)."""
+    """Batch embedding for efficiency (up to 25 texts per call to limit memory, recursive for larger)."""
     if not texts:
         return []
 
     key = api_key or _api_key()
 
-    # Gemini batch limit is 100
-    if len(texts) > 100:
+    # Smaller batches to reduce peak memory on constrained hosts (e.g. Render 512MB)
+    BATCH_LIMIT = 25
+    if len(texts) > BATCH_LIMIT:
         results: list[list[float]] = []
-        for i in range(0, len(texts), 100):
-            batch = texts[i : i + 100]
+        for i in range(0, len(texts), BATCH_LIMIT):
+            batch = texts[i : i + BATCH_LIMIT]
             batch_results = await generate_embeddings_batch(batch, key)
             results.extend(batch_results)
         return results
