@@ -16,7 +16,7 @@ interface ProcessingDocument {
  */
 export function useDocumentStatusPoller(
   processingDocumentIds: string[],
-  onStatusChange: (documentId: string, status: "ready" | "error", data: { totalChunks?: number; errorMessage?: string }) => void
+  onStatusChange: (documentId: string, status: "ready" | "error", data: { totalChunks?: number; errorMessage?: string; hasOriginalText?: boolean }) => void
 ) {
   const trackedRef = useRef<Map<string, ProcessingDocument>>(new Map());
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -78,7 +78,7 @@ export function useDocumentStatusPoller(
 
       if (idsToCheck.length === 0) return;
 
-      const { data, error } = await apiFetch<{ id: string; status: string; total_chunks: number | null }[]>(
+      const { data, error } = await apiFetch<{ id: string; status: string; total_chunks: number | null; error_message: string | null; has_original_text: boolean }[]>(
         "documents/status",
         { params: { ids: idsToCheck.join(",") } }
       );
@@ -91,10 +91,10 @@ export function useDocumentStatusPoller(
       for (const row of data || []) {
         if (row.status === "ready") {
           trackedRef.current.delete(row.id);
-          onStatusChange(row.id, "ready", { totalChunks: row.total_chunks ?? undefined });
+          onStatusChange(row.id, "ready", { totalChunks: row.total_chunks ?? undefined, hasOriginalText: row.has_original_text });
         } else if (row.status === "error") {
           trackedRef.current.delete(row.id);
-          onStatusChange(row.id, "error", { errorMessage: "Processing failed on the server" });
+          onStatusChange(row.id, "error", { errorMessage: row.error_message || "Processing failed on the server", hasOriginalText: row.has_original_text });
         }
         // If still "processing", keep polling
       }

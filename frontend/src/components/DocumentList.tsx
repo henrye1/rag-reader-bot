@@ -22,9 +22,10 @@ interface DocumentListProps {
   onRemove: (id: string) => void;
   onClearAll: () => void;
   onReprocess?: (document: UploadedDocument) => void;
+  onRetry?: (document: UploadedDocument) => void;
 }
 
-export const DocumentList = ({ documents, onRemove, onClearAll, onReprocess }: DocumentListProps) => {
+export const DocumentList = ({ documents, onRemove, onClearAll, onReprocess, onRetry }: DocumentListProps) => {
   const [isClearing, setIsClearing] = useState(false);
   const readyCount = documents.filter(d => d.status === 'ready').length;
   const totalChunks = documents.reduce((sum, d) => sum + (d.totalChunks || 0), 0);
@@ -185,11 +186,37 @@ export const DocumentList = ({ documents, onRemove, onClearAll, onReprocess }: D
                   size="icon"
                   onClick={() => onRemove(doc.id)}
                   title="Remove document"
-                  className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                  className={`transition-opacity flex-shrink-0 ${doc.status === 'error' ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
                 >
                   <X className="h-4 w-4" />
                 </Button>
               </div>
+              {doc.status === 'error' && (
+                <div className="mt-2 pt-2 border-t border-border/50 flex gap-2">
+                  {onRetry && doc.hasOriginalText && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onRetry(doc)}
+                      title="Retry indexing this document"
+                      className="h-7 px-3 text-xs gap-1.5 flex-1"
+                    >
+                      <RefreshCw className="h-3 w-3 flex-shrink-0" />
+                      Retry
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onRemove(doc.id)}
+                    title="Remove this document"
+                    className="h-7 px-3 text-xs gap-1.5 flex-1 text-destructive hover:text-destructive hover:bg-destructive/10"
+                  >
+                    <Trash2 className="h-3 w-3 flex-shrink-0" />
+                    Remove
+                  </Button>
+                </div>
+              )}
               {onReprocess && doc.status === 'ready' && (
                 <div className="mt-2 pt-2 border-t border-border/50">
                   <Button

@@ -22,7 +22,7 @@ import { Button } from "@/components/ui/button";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useToast } from "@/hooks/use-toast";
 import { useDocumentStatusPoller } from "@/hooks/use-document-status-poller";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiCall } from "@/lib/api";
 import type { Skill } from "@/types/database";
 import type { RagConfig, IngestionConfig, RetrievalConfig } from "@/types/rag-types";
 import { DEFAULT_RAG_CONFIG, DEFAULT_INGESTION_CONFIG, DEFAULT_RETRIEVAL_CONFIG } from "@/types/rag-types";
@@ -153,7 +153,7 @@ const Index = () => {
   );
 
   const handleDocumentStatusChange = useCallback(
-    (documentId: string, status: "ready" | "error", data: { totalChunks?: number; errorMessage?: string }) => {
+    (documentId: string, status: "ready" | "error", data: { totalChunks?: number; errorMessage?: string; hasOriginalText?: boolean }) => {
       setDocuments(prev => prev.map(doc => {
         if (doc.documentId === documentId) {
           return {
@@ -161,6 +161,7 @@ const Index = () => {
             status,
             totalChunks: data.totalChunks ?? doc.totalChunks,
             errorMessage: data.errorMessage,
+            hasOriginalText: data.hasOriginalText ?? doc.hasOriginalText,
           };
         }
         return doc;
@@ -204,6 +205,27 @@ const Index = () => {
       }
     }
     setDocuments((prev) => prev.filter((doc) => doc.id !== id));
+  };
+
+  const handleRetryDocument = async (doc: UploadedDocument) => {
+    // Set back to processing so the poller picks it up
+    setDocuments(prev => prev.map(d =>
+      d.id === doc.id ? { ...d, status: 'processing' as const, errorMessage: undefined } : d
+    ));
+
+    const { error } = await apiCall('reprocess-document', {
+      documentId: doc.documentId,
+      ingestionConfig: doc.ingestionConfig || ingestionConfig,
+    });
+
+    if (error) {
+      setDocuments(prev => prev.map(d =>
+        d.id === doc.id ? { ...d, status: 'error' as const, errorMessage: error.message } : d
+      ));
+      toast({ title: "Retry failed", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Retrying", description: `Re-processing ${doc.name}...` });
+    }
   };
 
   const handleClearAllDocuments = async () => {
@@ -499,6 +521,7 @@ const Index = () => {
                 onRemove={handleRemoveDocument}
                 onClearAll={handleClearAllDocuments}
                 onReprocess={handleOpenReprocess}
+                onRetry={handleRetryDocument}
               />
 
               {/* Document Comparison - show when 2+ documents available */}

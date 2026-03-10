@@ -12,8 +12,18 @@ async def get_document_statuses(ids: str = Query(..., description="Comma-separat
         return []
 
     supabase = get_supabase_client()
-    result = supabase.table("documents").select("id, status, total_chunks").in_("id", id_list).execute()
-    return result.data or []
+    result = supabase.table("documents").select("id, status, total_chunks, error_message, original_extracted_text").in_("id", id_list).execute()
+    # Return has_original_text flag (boolean) instead of the full text blob
+    rows = []
+    for row in result.data or []:
+        rows.append({
+            "id": row["id"],
+            "status": row["status"],
+            "total_chunks": row.get("total_chunks"),
+            "error_message": row.get("error_message"),
+            "has_original_text": bool(row.get("original_extracted_text")),
+        })
+    return rows
 
 
 @router.delete("/documents/{document_id}")
