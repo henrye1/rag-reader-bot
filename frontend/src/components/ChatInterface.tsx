@@ -17,6 +17,8 @@ import type { UploadedDocument } from "@/pages/Index";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { ChunkSources } from "@/components/ChunkSources";
 import { RagMetadataBadges } from "@/components/RagMetadataBadges";
+import { DownloadAssessment } from "@/components/DownloadAssessment";
+import { extractAssessmentJson, stripAssessmentJson } from "@/lib/extractAssessmentJson";
 import { ChatExpertSelector, RESEARCH_ASSISTANT } from "@/components/ChatExpertSelector";
 import type { Source, Skill } from "@/types/database";
 import type { RagConfig, RetrievalConfig, VerificationResult, ConfidenceResult } from "@/types/rag-types";
@@ -477,15 +479,22 @@ ${sources.map((s, i) => `${i + 1}. ${s.documentName} - Chunk ${s.chunkIndex} (Si
                       `}
                     >
                       <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                        {message.content}
+                        {message.role === "assistant" ? stripAssessmentJson(message.content) : message.content}
                       </p>
+                      {/* Word/PDF download buttons — only render when the response carries assessment JSON */}
+                      {message.role === "assistant" && (
+                        <DownloadAssessment
+                          assessment={extractAssessmentJson(message.content)}
+                          className="mt-3"
+                        />
+                      )}
                       {/* Copy/Export buttons for assistant messages */}
                       {message.role === "assistant" && (
                         <div className="flex items-center gap-1 mt-3 pt-2 border-t border-border/50">
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleCopyResponse(message.id, message.content)}
+                            onClick={() => handleCopyResponse(message.id, stripAssessmentJson(message.content))}
                             className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
                             title="Copy response (without citations)"
                           >
@@ -499,7 +508,7 @@ ${sources.map((s, i) => `${i + 1}. ${s.documentName} - Chunk ${s.chunkIndex} (Si
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleExportResponse(message.content, message.sources)}
+                            onClick={() => handleExportResponse(stripAssessmentJson(message.content), message.sources)}
                             className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
                             title="Export response as text file"
                           >
