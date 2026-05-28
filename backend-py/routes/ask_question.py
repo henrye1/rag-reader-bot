@@ -14,7 +14,8 @@ from fastapi.responses import JSONResponse
 
 from services.supabase_client import get_supabase_client
 from services.embeddings import generate_query_embedding
-from services.gemini_client import generate_content, extract_json
+from services.gemini_client import extract_json
+from services.llm import call_llm, DEFAULT_MODEL
 from services.popia_compliance import detect_pii, redact_pii, create_audit_entry
 from services.rag_skills import (
     DEFAULT_RAG_CONFIG,
@@ -170,7 +171,7 @@ def _format_analysis_content(answer: str) -> str:
     return html
 
 
-async def _generate_report_context(answer: str, question: str, doc_names: list[str], custom_prompt: str | None, api_key: str) -> dict:
+async def _generate_report_context(answer: str, question: str, doc_names: list[str], custom_prompt: str | None, llm: dict) -> dict:
     prompt = f"""Based on the following analysis, generate report metadata:
 
 ANALYSIS:
@@ -197,7 +198,7 @@ Generate JSON:
 Respond with ONLY the JSON."""
 
     try:
-        result = await generate_content(prompt, temperature=0.3, api_key=api_key)
+        result = await call_llm(prompt, llm, temperature=0.3)
         parsed = extract_json(result)
         if parsed and isinstance(parsed, dict):
             return parsed
@@ -346,6 +347,15 @@ async def ask_question(request: Request):
         skill_name = body.get("skillName")
         skill_output_format = body.get("skillOutputFormat")
         popia_config_raw = body.get("popiaConfig", {})
+        model = body.get("model")
+
+        # Provider-routing config for generation calls (Gemini or Claude).
+        # Embeddings/retrieval keep using the Google key directly.
+        llm = {
+            "model": model or DEFAULT_MODEL,
+            "google_api_key": api_key,
+            "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY"),
+        }
 
         if not question:
             raise ValueError("Question is required")
@@ -410,7 +420,7 @@ IMPORTANT GUIDELINES:
             else:
                 research_prompt += f"\n\n## USER QUESTION:\n{question}"
 
-            answer = await generate_content(research_prompt, temperature=0.5, max_output_tokens=8192, api_key=api_key)
+            answer = await call_llm(research_prompt, llm, temperature=0.5, max_output_tokens=8192)
             processing_ms = int((time.time() - start_time) * 1000)
 
             return {
@@ -449,7 +459,7 @@ Generate a JSON response with:
   "suggested_use_cases": ["Use case 1", "Use case 2"]
 }}"""
 
-            raw_answer = await generate_content(meta_prompt, temperature=0.7, max_output_tokens=4096, timeout=60.0, api_key=api_key)
+            raw_answer = await call_llm(meta_prompt, llm, temperature=0.7, max_output_tokens=4096, timeout=60.0)
             processing_ms = int((time.time() - start_time) * 1000)
 
             generated_skill = extract_json(raw_answer) if raw_answer else None
@@ -850,10 +860,10 @@ Generate a structured report with:
         if reasoning_addition:
             final_prompt += f"\n\n## REASONING FRAMEWORK:{reasoning_addition}"
 
-        print("=== SENDING TO GEMINI ===")
+        print(f"=== SENDING TO {llm['model']} ===")
         print(f"Prompt length: {len(final_prompt)} characters")
 
-        answer = await generate_content(final_prompt, temperature=0.3, max_output_tokens=8192, api_key=api_key)
+        answer = await call_llm(final_prompt, llm, temperature=0.3, max_output_tokens=8192)
 
         if not answer:
             answer = "No answer generated"
@@ -879,7 +889,7 @@ Generate a structured report with:
 
         if generate_report and answer:
             doc_names = [d["name"] for d in documents]
-            report_context = await _generate_report_context(answer, question, doc_names, custom_prompt, api_key)
+            report_context = await _generate_report_context(answer, question, doc_names, custom_prompt, llm)
             report_html = _generate_report_html(answer, doc_names, report_context, sources)
             report_data = {"answer": answer, "documents": doc_names, "reportContext": report_context, "sources": sources}
 
