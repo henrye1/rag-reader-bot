@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-RAG-powered Document Q&A system. Users upload documents, which are chunked and embedded into Supabase (pgvector). They then ask questions answered via semantic search + Google Gemini LLM generation. Includes advanced RAG skills (HyDE, query rewriting, decomposition, verification, confidence scoring), expert "skills" (domain-specific prompt templates), POPIA compliance (PII detection/redaction), and configurable ingestion/retrieval pipelines.
+RAG-powered Document Q&A system. Users upload documents, which are chunked and embedded into Supabase (pgvector). They then ask questions answered via semantic search + an LLM. Answer generation is **model-selectable per conversation** — Google Gemini 2.5 Pro (default) or Anthropic Claude (Opus 4.7 / Sonnet 4.6 / Haiku 4.5), routed in `backend-py/services/llm.py`. Includes advanced RAG skills (HyDE, query rewriting, decomposition, verification, confidence scoring), expert "skills" (domain-specific prompt templates), POPIA compliance (PII detection/redaction), configurable ingestion/retrieval pipelines, and client-side Word/PDF export of IFRS 9 assessments.
 
 Originally scaffolded with [Lovable](https://lovable.dev).
 
@@ -45,7 +45,8 @@ Run both servers in separate terminals:
 
 | Component | Purpose |
 |---|---|
-| `ChatInterface` | Main Q&A chat — sends questions to `ask-question` API, displays answers with sources |
+| `ChatInterface` | Main Q&A chat — sends questions (with the selected `model`) to `ask-question` API, displays answers with sources; hosts the model picker dropdown |
+| `DownloadAssessment` | Two buttons that build a Word (`docx`) or PDF (`pdfmake`) working paper from the assessment JSON in a reply; renders nothing when no JSON is present |
 | `FileUpload` | Drag-and-drop file upload → calls `upload-document` API |
 | `DocumentList` | Lists uploaded docs with status, chunk counts, reprocess option |
 | `SkillSelector` / `SkillManager` / `SkillCreatorDialog` | Browse, select, create, and manage expert skills (domain prompts) |
@@ -56,6 +57,10 @@ Run both servers in separate terminals:
 | `POPIACompliancePanel` | Toggle PII detection/redaction settings |
 | `ReportViewer` | Renders generated HTML reports with cumulative follow-up sections |
 | `DocumentComparison` | Compare multiple documents side-by-side |
+
+### Export module (`frontend/src/lib/`)
+
+Client-side Word/PDF generation for IFRS 9 assessments: `assessmentTypes.ts` (schema), `extractAssessmentJson.ts` (parses + strips the `assessment-json` fenced block from a reply), `buildAssessmentDocx.ts` (`docx`), `buildAssessmentPdf.ts` (`pdfmake`). The `ask-question` route appends a `STRUCTURED EXPORT` JSON requirement on the questions-template prompt so replies carry the machine-readable block these consume. `ChatInterface` hides the JSON fence from displayed/copied text and shows the download buttons only when the block is present.
 
 ### Python Backend (FastAPI — `backend-py/`)
 
@@ -76,6 +81,7 @@ The backend lives in `backend-py/` and runs on FastAPI (port 3001). Uses native 
 
 **Services** (`backend-py/services/`):
 - `supabase_client.py` — Singleton Supabase client using service role key
+- `llm.py` — Provider-routing layer. `call_llm(prompt, llm, ...)` dispatches to Gemini or the Anthropic Messages API based on the model id; clamps Claude `max_tokens` per model and omits `temperature`/`thinking` for Claude. The `ask-question` route routes its user-visible generation (main answer, research, meta, report metadata) through this; auxiliary RAG skills + embeddings stay on Gemini.
 - `gemini_client.py` — Shared Gemini REST API helper (generate_content, extract_json)
 - `embeddings.py` — Gemini `gemini-embedding-001` embedding generation (768 dimensions via `outputDimensionality`)
 - `document_parser.py` — Native Python parsing: pdfplumber (PDF), python-docx (DOCX), direct decode (TXT/JSON). Falls back to Gemini for scanned/image-based PDFs.
@@ -105,7 +111,8 @@ The frontend has **no environment variables** — all configuration lives in the
 
 Python Backend (`backend-py/.env`):
 - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-- `GOOGLE_API_KEY` — for Gemini LLM and embedding API calls
+- `GOOGLE_API_KEY` — for Gemini LLM and embedding API calls (always required)
+- `ANTHROPIC_API_KEY` — optional, required only when a Claude model is selected; set it in the deployed backend's environment (e.g. Render) to enable the Claude options
 - `LLAMA_CLOUD_API_KEY` — optional, for LlamaParse document parsing
 - `PORT` — defaults to 3001
 

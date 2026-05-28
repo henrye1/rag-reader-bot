@@ -11,6 +11,8 @@ Originally scaffolded with [Lovable](https://lovable.dev/projects/13af4cb5-9f84-
 - **Configurable chunking**: fixed, semantic, proposition, hierarchical strategies
 - **Advanced retrieval**: fusion search (RRF/weighted), reranking, self-RAG, corrective RAG
 - **Expert skills system**: pre-built and AI-generated domain-specific prompts
+- **Multi-model generation**: pick Gemini 2.5 Pro or Claude (Opus 4.7 / Sonnet 4.6 / Haiku 4.5) per conversation from the chat header
+- **In-app export**: download IFRS 9 assessments as formatted Word (.docx) or PDF working papers, generated client-side
 - **POPIA compliance**: PII detection and redaction for South African regulations
 - **Professional reports**: audit-quality HTML output with citations
 
@@ -61,8 +63,11 @@ npm run dev                  # Runs on port 8080, proxies /api to :3001
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 GOOGLE_API_KEY=your-gemini-api-key
+ANTHROPIC_API_KEY=your-anthropic-api-key   # optional — only needed to use Claude models
 PORT=3001
 ```
+
+> When deployed (e.g. Render), set `ANTHROPIC_API_KEY` in the backend service's environment. Gemini works without it; selecting a Claude model without it returns a clear "ANTHROPIC_API_KEY is not configured" error.
 
 **Frontend** (`frontend/.env`):
 ```
@@ -78,8 +83,9 @@ VITE_SUPABASE_PROJECT_ID=your-project-id
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui |
 | Backend | Python 3.13, FastAPI, Uvicorn, httpx |
 | Database | Supabase (PostgreSQL + pgvector) |
-| AI | Google Gemini (gemini-2.5-pro, gemini-embedding-001) |
+| AI | Google Gemini (gemini-2.5-pro, gemini-embedding-001) + Anthropic Claude (Opus 4.7, Sonnet 4.6, Haiku 4.5) |
 | Document Parsing | pdfplumber, python-docx, Gemini fallback |
+| Document Export | docx, pdfmake (client-side Word/PDF generation) |
 
 ## Documentation
 
