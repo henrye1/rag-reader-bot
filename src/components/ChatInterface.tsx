@@ -4,6 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import type { UploadedDocument } from "@/pages/Index";
@@ -16,6 +23,16 @@ import type { RagConfig, RetrievalConfig, VerificationResult, ConfidenceResult }
 import type { OutputFormatConfig } from "@/components/OutputFormatPanel";
 import type { POPIAConfig } from "@/components/POPIACompliancePanel";
 import { ComplianceIndicator } from "@/components/POPIACompliancePanel";
+
+// Selectable generation models. The `id` is sent to the ask-question edge
+// function, which routes to Gemini or Claude. Gemini is the default.
+const MODEL_OPTIONS = [
+  { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+  { id: "claude-opus-4-7", label: "Claude Opus 4.7" },
+  { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+  { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+] as const;
+const DEFAULT_MODEL_ID = "gemini-2.5-pro";
 
 // Helper function to strip citations from text for clean export
 const stripCitations = (text: string): string => {
@@ -81,6 +98,8 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
   // Per-message expert selection
   const [chatExpert, setChatExpert] = useLocalStorage<Skill | null>("chatExpert", null);
   const [isResearchMode, setIsResearchMode] = useLocalStorage<boolean>("isResearchMode", false);
+  // Selected generation model (Gemini or Claude)
+  const [selectedModel, setSelectedModel] = useLocalStorage<string>("selectedModel", DEFAULT_MODEL_ID);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -136,6 +155,7 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
               ragConfig: ragConfig,
               retrievalConfig: retrievalConfig,
               outputFormat: outputFormat,
+              model: selectedModel,
             },
           });
 
@@ -292,6 +312,7 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
           popiaConfig: popiaConfig, // POPIA compliance settings
           conversationHistory: conversationHistory.length > 0 ? conversationHistory : undefined,
           researchMode: isResearchMode, // Flag to skip RAG and use general knowledge
+          model: selectedModel, // Selected generation model (Gemini or Claude)
         },
       });
 
@@ -541,18 +562,32 @@ ${sources.map((s, i) => `${i + 1}. ${s.documentName} - Chunk ${s.chunkIndex} (Si
 
         {/* Input Area */}
         <div className="border-t border-border p-4 bg-card">
-          {/* Expert Selector - above input */}
-          <div className="mb-3">
-            <ChatExpertSelector
-              selectedExpert={chatExpert}
-              onExpertChange={(expert) => {
-                setChatExpert(expert);
-                onSkillChange?.(expert);
-              }}
-              isResearchMode={isResearchMode}
-              onResearchModeChange={setIsResearchMode}
-              refreshKey={skillsRefreshKey}
-            />
+          {/* Expert + Model Selectors - above input */}
+          <div className="mb-3 flex items-center gap-2">
+            <div className="flex-1">
+              <ChatExpertSelector
+                selectedExpert={chatExpert}
+                onExpertChange={(expert) => {
+                  setChatExpert(expert);
+                  onSkillChange?.(expert);
+                }}
+                isResearchMode={isResearchMode}
+                onResearchModeChange={setIsResearchMode}
+                refreshKey={skillsRefreshKey}
+              />
+            </div>
+            <Select value={selectedModel} onValueChange={setSelectedModel}>
+              <SelectTrigger className="w-[180px] shrink-0" aria-label="Model">
+                <SelectValue placeholder="Model" />
+              </SelectTrigger>
+              <SelectContent>
+                {MODEL_OPTIONS.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Attached Files Display */}

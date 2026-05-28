@@ -1,7 +1,7 @@
 // RAG Skills Implementation Module
 // Each skill is a standalone function that can be enabled/disabled
 
-const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+import { callLLM, type LLMConfig } from "../_shared/llm.ts";
 
 /**
  * HyDE: Hypothetical Document Embeddings
@@ -10,7 +10,7 @@ const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models
 export async function generateHypotheticalAnswer(
   question: string,
   documentNames: string[],
-  apiKey: string,
+  llm: LLMConfig,
   temperature: number = 0.5,
   maxTokens: number = 500
 ): Promise<string> {
@@ -26,25 +26,7 @@ This will help guide the actual document analysis.
 Hypothetical Answer:`;
 
   try {
-    const response = await fetch(
-      `${GEMINI_API_BASE}/gemini-2.5-pro:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: hydePrompt }] }],
-          generationConfig: { temperature, maxOutputTokens: maxTokens },
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      console.warn("HyDE generation failed:", response.status);
-      return '';
-    }
-
-    const data = await response.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    return await callLLM(hydePrompt, llm, { temperature, maxOutputTokens: maxTokens });
   } catch (error) {
     console.error("HyDE error:", error);
     return '';
@@ -58,7 +40,7 @@ Hypothetical Answer:`;
 export async function rewriteQuery(
   originalQuestion: string,
   documentContext: string,
-  apiKey: string
+  llm: LLMConfig
 ): Promise<string> {
   const rewritePrompt = `You are a query optimizer. Improve this question to be more specific and searchable.
 
@@ -76,25 +58,7 @@ Rules:
 Improved Question (return ONLY the improved question, nothing else):`;
 
   try {
-    const response = await fetch(
-      `${GEMINI_API_BASE}/gemini-2.5-pro:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: rewritePrompt }] }],
-          generationConfig: { temperature: 0.2, maxOutputTokens: 200 },
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      console.warn("Query rewrite failed:", response.status);
-      return originalQuestion;
-    }
-
-    const data = await response.json();
-    const improved = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    const improved = (await callLLM(rewritePrompt, llm, { temperature: 0.2, maxOutputTokens: 200 })).trim();
 
     if (improved && improved.length > 0) {
       console.log(`Query Rewrite: "${originalQuestion}" -> "${improved}"`);
@@ -113,7 +77,7 @@ Improved Question (return ONLY the improved question, nothing else):`;
  */
 export async function decomposeQuestion(
   question: string,
-  apiKey: string,
+  llm: LLMConfig,
   maxSubquestions: number = 5
 ): Promise<string[]> {
   const decomposePrompt = `Analyze this question and determine if it should be broken into sub-questions.
@@ -131,25 +95,7 @@ Important: Each sub-question should be self-contained and answerable independent
 Return ONLY valid JSON, no other text:`;
 
   try {
-    const response = await fetch(
-      `${GEMINI_API_BASE}/gemini-2.5-pro:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: decomposePrompt }] }],
-          generationConfig: { temperature: 0, maxOutputTokens: 500 },
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      console.warn("Query decomposition failed:", response.status);
-      return [question];
-    }
-
-    const data = await response.json();
-    const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const responseText = await callLLM(decomposePrompt, llm, { temperature: 0, maxOutputTokens: 500 });
 
     // Extract JSON from response
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
@@ -175,7 +121,7 @@ export async function verifyAnswer(
   question: string,
   answer: string,
   documentNames: string[],
-  apiKey: string
+  llm: LLMConfig
 ): Promise<{ verified: boolean; issues: string[]; severity: 'none' | 'minor' | 'major'; suggestion?: string }> {
   const verifyPrompt = `You are a fact-checker. Verify this answer against strict criteria.
 
@@ -201,25 +147,7 @@ Return JSON only:
 }`;
 
   try {
-    const response = await fetch(
-      `${GEMINI_API_BASE}/gemini-2.5-pro:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: verifyPrompt }] }],
-          generationConfig: { temperature: 0, maxOutputTokens: 500 },
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      console.warn("Answer verification failed:", response.status);
-      return { verified: true, issues: [], severity: 'none' };
-    }
-
-    const data = await response.json();
-    const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const responseText = await callLLM(verifyPrompt, llm, { temperature: 0, maxOutputTokens: 500 });
 
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
@@ -248,7 +176,7 @@ export async function assessConfidence(
   answer: string,
   documentNames: string[],
   sourcesCount: number,
-  apiKey: string
+  llm: LLMConfig
 ): Promise<{ score: number; label: 'High' | 'Medium' | 'Low'; reasoning: string; gaps: string[] }> {
   const confidencePrompt = `Assess the confidence level of this answer.
 
@@ -273,25 +201,7 @@ Return JSON only:
 }`;
 
   try {
-    const response = await fetch(
-      `${GEMINI_API_BASE}/gemini-2.5-pro:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: confidencePrompt }] }],
-          generationConfig: { temperature: 0, maxOutputTokens: 300 },
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      console.warn("Confidence assessment failed:", response.status);
-      return { score: 0.5, label: 'Medium', reasoning: 'Unable to assess', gaps: [] };
-    }
-
-    const data = await response.json();
-    const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const responseText = await callLLM(confidencePrompt, llm, { temperature: 0, maxOutputTokens: 300 });
 
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
@@ -478,7 +388,7 @@ export async function rerankChunks(
   query: string,
   chunks: RetrievalChunk[],
   topN: number,
-  apiKey: string
+  llm: LLMConfig
 ): Promise<RetrievalChunk[]> {
   if (chunks.length === 0) return [];
   if (chunks.length <= topN) return chunks;
@@ -503,25 +413,7 @@ Return a JSON array of chunk IDs in order of relevance (most relevant first):
 Only return the top ${topN} most relevant chunks. Return ONLY valid JSON.`;
 
   try {
-    const response = await fetch(
-      `${GEMINI_API_BASE}/gemini-2.5-pro:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: rerankPrompt }] }],
-          generationConfig: { temperature: 0, maxOutputTokens: 500 },
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      console.warn("Reranking failed:", response.status);
-      return chunks.slice(0, topN);
-    }
-
-    const data = await response.json();
-    const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const responseText = await callLLM(rerankPrompt, llm, { temperature: 0, maxOutputTokens: 500 });
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
 
     if (jsonMatch) {
@@ -686,7 +578,7 @@ export async function selfRAG(
   initialChunks: RetrievalChunk[],
   threshold: number,
   maxIterations: number,
-  apiKey: string,
+  llm: LLMConfig,
   retrieveFn: (q: string) => Promise<RetrievalChunk[]>
 ): Promise<{ chunks: RetrievalChunk[]; iterations: number; refined: boolean }> {
   let currentChunks = initialChunks;
@@ -695,7 +587,7 @@ export async function selfRAG(
 
   for (let i = 0; i < maxIterations; i++) {
     // Assess retrieval quality
-    const assessment = await assessRetrievalQuality(query, currentChunks, apiKey);
+    const assessment = await assessRetrievalQuality(query, currentChunks, llm);
 
     if (assessment.score >= threshold) {
       console.log(`Self-RAG: Quality sufficient (${assessment.score.toFixed(2)}) after ${iterations} iterations`);
@@ -706,7 +598,7 @@ export async function selfRAG(
     refined = true;
 
     // Generate refined query based on gaps
-    const refinedQuery = await refineQueryForGaps(query, assessment.gaps, apiKey);
+    const refinedQuery = await refineQueryForGaps(query, assessment.gaps, llm);
 
     if (refinedQuery !== query) {
       console.log(`Self-RAG iteration ${iterations}: Refining query to: "${refinedQuery}"`);
@@ -736,7 +628,7 @@ export async function selfRAG(
 export async function assessRetrievalQuality(
   query: string,
   chunks: RetrievalChunk[],
-  apiKey: string
+  llm: LLMConfig
 ): Promise<{ score: number; gaps: string[]; isRelevant: boolean }> {
   if (chunks.length === 0) {
     return { score: 0, gaps: ['No chunks retrieved'], isRelevant: false };
@@ -766,25 +658,7 @@ Return JSON:
 }`;
 
   try {
-    const response = await fetch(
-      `${GEMINI_API_BASE}/gemini-2.5-pro:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: assessPrompt }] }],
-          generationConfig: { temperature: 0, maxOutputTokens: 300 },
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      console.warn("Quality assessment failed:", response.status);
-      return { score: 0.5, gaps: [], isRelevant: true };
-    }
-
-    const data = await response.json();
-    const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const responseText = await callLLM(assessPrompt, llm, { temperature: 0, maxOutputTokens: 300 });
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
 
     if (jsonMatch) {
@@ -809,7 +683,7 @@ Return JSON:
 async function refineQueryForGaps(
   originalQuery: string,
   gaps: string[],
-  apiKey: string
+  llm: LLMConfig
 ): Promise<string> {
   if (gaps.length === 0) return originalQuery;
 
@@ -824,24 +698,9 @@ Generate a refined query that would better retrieve the missing information.
 Return ONLY the refined query, nothing else.`;
 
   try {
-    const response = await fetch(
-      `${GEMINI_API_BASE}/gemini-2.5-pro:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: refinePrompt }] }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 200 },
-        }),
-      }
-    );
-
-    if (response.ok) {
-      const data = await response.json();
-      const refined = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-      if (refined && refined.length > 0) {
-        return refined;
-      }
+    const refined = (await callLLM(refinePrompt, llm, { temperature: 0.3, maxOutputTokens: 200 })).trim();
+    if (refined && refined.length > 0) {
+      return refined;
     }
   } catch (error) {
     console.error("Query refinement error:", error);
@@ -858,7 +717,7 @@ export async function correctiveRAG(
   query: string,
   chunks: RetrievalChunk[],
   threshold: number,
-  apiKey: string,
+  llm: LLMConfig,
   retrieveFn: (q: string) => Promise<RetrievalChunk[]>
 ): Promise<{
   chunks: RetrievalChunk[];
@@ -867,7 +726,7 @@ export async function correctiveRAG(
   refinedQuery?: string;
 }> {
   // Assess initial retrieval
-  const assessment = await assessRetrievalQuality(query, chunks, apiKey);
+  const assessment = await assessRetrievalQuality(query, chunks, llm);
 
   // CORRECT: Good retrieval
   if (assessment.isRelevant && assessment.score >= threshold) {
@@ -879,7 +738,7 @@ export async function correctiveRAG(
     console.log(`CRAG: Poor retrieval (${assessment.score.toFixed(2)}), refining query...`);
 
     // Try query transformation
-    const refinedQuery = await transformQueryForCRAG(query, apiKey);
+    const refinedQuery = await transformQueryForCRAG(query, llm);
 
     if (refinedQuery !== query) {
       const newChunks = await retrieveFn(refinedQuery);
@@ -919,7 +778,7 @@ export async function correctiveRAG(
  */
 async function transformQueryForCRAG(
   query: string,
-  apiKey: string
+  llm: LLMConfig
 ): Promise<string> {
   const transformPrompt = `The following query did not retrieve good results. Transform it to be more effective.
 
@@ -934,25 +793,10 @@ Strategies to try:
 Return ONLY the transformed query, nothing else.`;
 
   try {
-    const response = await fetch(
-      `${GEMINI_API_BASE}/gemini-2.5-pro:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: transformPrompt }] }],
-          generationConfig: { temperature: 0.4, maxOutputTokens: 200 },
-        }),
-      }
-    );
-
-    if (response.ok) {
-      const data = await response.json();
-      const transformed = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-      if (transformed && transformed.length > 0) {
-        console.log(`CRAG query transform: "${query}" -> "${transformed}"`);
-        return transformed;
-      }
+    const transformed = (await callLLM(transformPrompt, llm, { temperature: 0.4, maxOutputTokens: 200 })).trim();
+    if (transformed && transformed.length > 0) {
+      console.log(`CRAG query transform: "${query}" -> "${transformed}"`);
+      return transformed;
     }
   } catch (error) {
     console.error("CRAG transform error:", error);

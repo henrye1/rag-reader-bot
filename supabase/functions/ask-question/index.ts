@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { generateQueryEmbedding } from "../_shared/embeddings.ts";
 import { getSupabaseClient, MatchedChunk } from "../_shared/supabase-client.ts";
+import { callLLM, DEFAULT_MODEL, type LLMConfig } from "../_shared/llm.ts";
 import {
   detectPII,
   redactPII,
@@ -294,45 +295,31 @@ function buildContextFromChunks(chunks: RetrievalChunk[]): { contextText: string
 }
 
 /**
- * Run a single Gemini call for one topic. Returns the model's answer text.
+ * Run a single generation call for one topic, routed to the configured model
+ * (Gemini or Claude). Returns the model's answer text. Applies a 120s timeout.
  */
 async function generateTopicAnswer(
   topicPrompt: string,
-  apiKey: string,
-  maxOutputTokens: number = 32768,
-  temperature: number = 0.5,
+  llm: LLMConfig,
+  opts: { system?: string; maxOutputTokens?: number; temperature?: number } = {},
 ): Promise<string> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 120000);
 
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: topicPrompt }] }],
-          generationConfig: { temperature, maxOutputTokens },
-        }),
-        signal: controller.signal,
-      },
-    );
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
-    }
-
-    const data = await response.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    return await callLLM(topicPrompt, llm, {
+      system: opts.system,
+      maxOutputTokens: opts.maxOutputTokens ?? 32768,
+      temperature: opts.temperature ?? 0.5,
+      signal: controller.signal,
+    });
   } catch (error: unknown) {
-    clearTimeout(timeoutId);
     if (error instanceof Error && error.name === "AbortError") {
       throw new Error("Request timeout: The AI model took too long to respond.");
     }
     throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -347,13 +334,15 @@ async function retrieveChunksForQuery(
   supabase: ReturnType<typeof getSupabaseClient>,
   retrievalConfig: RetrievalConfig,
   ragConfig: RagConfig,
-  apiKey: string,
+  llm: LLMConfig,
 ): Promise<RetrievalChunk[]> {
   const topK = ragConfig.top_k;
   const threshold = ragConfig.similarity_threshold;
+  // Embeddings always use Google (Anthropic has no embeddings API).
+  const embedKey = llm.googleApiKey;
 
   const performRetrieval = async (q: string): Promise<RetrievalChunk[]> => {
-    const qEmbed = await generateQueryEmbedding(q, apiKey);
+    const qEmbed = await generateQueryEmbedding(q, embedKey);
     const { data } = await supabase.rpc('match_document_chunks', {
       query_embedding: `[${qEmbed.embedding.join(',')}]`,
       match_threshold: threshold,
@@ -371,7 +360,7 @@ async function retrieveChunksForQuery(
   };
 
   // Initial semantic retrieval
-  const queryEmbedding = await generateQueryEmbedding(query, apiKey);
+  const queryEmbedding = await generateQueryEmbedding(query, embedKey);
   const retrievalTopK = retrievalConfig.enable_fusion ? topK * 2 : topK;
   const { data: matchedChunks, error: searchError } = await supabase
     .rpc('match_document_chunks', {
@@ -415,7 +404,7 @@ async function retrieveChunksForQuery(
       query,
       chunks,
       retrievalConfig.crag_relevance_threshold,
-      apiKey,
+      llm,
       performRetrieval,
     );
     if (cragResult.corrected) chunks = cragResult.chunks;
@@ -428,7 +417,7 @@ async function retrieveChunksForQuery(
       chunks,
       retrievalConfig.self_rag_threshold,
       retrievalConfig.max_self_rag_iterations,
-      apiKey,
+      llm,
       performRetrieval,
     );
     if (selfRagResult.refined) chunks = selfRagResult.chunks;
@@ -436,7 +425,7 @@ async function retrieveChunksForQuery(
 
   // Reranking
   if (retrievalConfig.enable_reranking && retrievalConfig.reranker_model !== 'none' && chunks.length > 0) {
-    chunks = await rerankChunks(query, chunks, retrievalConfig.rerank_top_n, apiKey);
+    chunks = await rerankChunks(query, chunks, retrievalConfig.rerank_top_n, llm);
   }
 
   return chunks.slice(0, topK);
@@ -452,6 +441,8 @@ serve(async (req) => {
     if (!GOOGLE_API_KEY) {
       throw new Error("GOOGLE_API_KEY is not configured");
     }
+    // Optional — only required when a Claude model is selected.
+    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 
     const supabase = getSupabaseClient();
 
@@ -467,6 +458,7 @@ serve(async (req) => {
       outputFormat: requestOutputFormat,
       conversationHistory,  // Array of previous messages for context
       researchMode,  // Flag to skip RAG and use general knowledge
+      model: requestModel,  // Selected LLM (Gemini or Claude); defaults to Gemini
       // Second Brain skill type support
       skillType,  // 'expert' | 'generator' | 'meta'
       skillName,  // Name of the skill being used
@@ -474,6 +466,13 @@ serve(async (req) => {
       // POPIA compliance settings
       popiaConfig,  // PII detection and redaction options
     } = await req.json();
+
+    // Provider-routing config passed to every generation/skill call.
+    const llm: LLMConfig = {
+      model: requestModel || DEFAULT_MODEL,
+      googleApiKey: GOOGLE_API_KEY,
+      anthropicApiKey: ANTHROPIC_API_KEY,
+    };
 
     // Research mode doesn't require documents
     if (!question) {
@@ -604,44 +603,11 @@ IMPORTANT GUIDELINES:
         researchPrompt += `\n\n## USER QUESTION:\n${question}`;
       }
 
-      // Make request to Gemini API
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 120000);
-
-      let response;
-      try {
-        response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GOOGLE_API_KEY}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: researchPrompt }] }],
-              generationConfig: {
-                temperature: 0.5,
-                maxOutputTokens: 32768,    // was 8192
-              },
-            }),
-            signal: controller.signal,
-          },
-        );
-        clearTimeout(timeoutId);
-      } catch (error: unknown) {
-        clearTimeout(timeoutId);
-        if (error instanceof Error && error.name === "AbortError") {
-          throw new Error("Request timeout: The AI model took too long to respond.");
-        }
-        throw error;
-      }
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Gemini API error:", response.status, errorText);
-        throw new Error(`Gemini API error: ${errorText}`);
-      }
-
-      const data = await response.json();
-      const answer = data.candidates?.[0]?.content?.parts?.[0]?.text || "No answer generated";
+      // Generate via the selected model (Gemini or Claude)
+      const answer = await generateTopicAnswer(researchPrompt, llm, {
+        maxOutputTokens: 32768,
+        temperature: 0.5,
+      }) || "No answer generated";
       const processingTimeMs = Date.now() - startTime;
 
       console.log(`Research Mode completed in ${processingTimeMs}ms`);
@@ -690,42 +656,10 @@ Generate a JSON response with:
   "suggested_use_cases": ["Use case 1", "Use case 2"]
 }`;
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000);
-
-      let response;
-      try {
-        response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GOOGLE_API_KEY}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: metaPrompt }] }],
-              generationConfig: {
-                temperature: 0.7,
-                maxOutputTokens: 4096,
-              },
-            }),
-            signal: controller.signal,
-          },
-        );
-        clearTimeout(timeoutId);
-      } catch (error: unknown) {
-        clearTimeout(timeoutId);
-        if (error instanceof Error && error.name === "AbortError") {
-          throw new Error("Request timeout: The AI took too long to respond.");
-        }
-        throw error;
-      }
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`AI API error: ${errorText}`);
-      }
-
-      const data = await response.json();
-      const rawAnswer = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      const rawAnswer = await generateTopicAnswer(metaPrompt, llm, {
+        maxOutputTokens: 4096,
+        temperature: 0.7,
+      });
       const processingTimeMs = Date.now() - startTime;
 
       // Try to parse as JSON for structured response
@@ -852,7 +786,7 @@ Generate a JSON response with:
       // 1. Query Rewriting - improve vague questions
       if (ragConfig.enable_query_rewrite) {
         console.log("Applying Query Rewrite skill...");
-        const rewritten = await rewriteQuery(question, documentNames.join(', '), GOOGLE_API_KEY);
+        const rewritten = await rewriteQuery(question, documentNames.join(', '), llm);
         if (rewritten !== question) {
           processedQuestion = rewritten;
           skillsApplied.push('Query Rewrite');
@@ -863,7 +797,7 @@ Generate a JSON response with:
       // 2. Query Decomposition - break complex questions into sub-questions
       if (ragConfig.enable_decomposition) {
         console.log("Applying Query Decomposition skill...");
-        subQuestions = await decomposeQuestion(processedQuestion, GOOGLE_API_KEY);
+        subQuestions = await decomposeQuestion(processedQuestion, llm);
         if (subQuestions.length > 1) {
           wasDecomposed = true;
           skillsApplied.push('Decomposition');
@@ -882,7 +816,7 @@ Generate a JSON response with:
         hydeContext = await generateHypotheticalAnswer(
           processedQuestion,
           documentNames,
-          GOOGLE_API_KEY
+          llm
         );
         if (hydeContext) {
           skillsApplied.push('HyDE');
@@ -979,7 +913,7 @@ Generate a JSON response with:
           processedQuestion,
           chunks,
           retrievalConfig.crag_relevance_threshold,
-          GOOGLE_API_KEY,
+          llm,
           performRetrieval
         );
 
@@ -998,7 +932,7 @@ Generate a JSON response with:
           chunks,
           retrievalConfig.self_rag_threshold,
           retrievalConfig.max_self_rag_iterations,
-          GOOGLE_API_KEY,
+          llm,
           performRetrieval
         );
 
@@ -1016,7 +950,7 @@ Generate a JSON response with:
           processedQuestion,
           chunks,
           retrievalConfig.rerank_top_n,
-          GOOGLE_API_KEY
+          llm
         );
         skillsApplied.push('Reranking');
       }
@@ -1241,16 +1175,21 @@ You have access to retrieved sections from organisation-specific documents inclu
               supabase,
               retrievalConfig,
               ragConfig,
-              GOOGLE_API_KEY,
+              llm,
             );
             const { contextText: topicContext, sources: topicSources } = buildContextFromChunks(topicChunks);
 
             // --- Per-topic prompt ---
-            let topicPrompt = defaultPrompt;
+            // Stable scaffold (identical across every topic in this run) goes in
+            // `system` so Claude can cache it; volatile per-topic content is the
+            // user prompt.
+            let topicSystem = defaultPrompt;
             if (customPrompt) {
-              topicPrompt += `\n\n## EXPERT KNOWLEDGE / ASSESSMENT FRAMEWORK:\n${customPrompt}\n\n`;
+              topicSystem += `\n\n## EXPERT KNOWLEDGE / ASSESSMENT FRAMEWORK:\n${customPrompt}`;
             }
-            topicPrompt += `\n\n## RETRIEVED DOCUMENT CONTEXT (for this topic):
+            topicSystem += `\n\n${outputFormatInstructions}`;
+
+            let topicPrompt = `## RETRIEVED DOCUMENT CONTEXT (for this topic):
 You have been provided with ${topicChunks.length} relevant section(s) from the source documents for this specific topic.
 
 **RETRIEVED SECTIONS:**
@@ -1266,11 +1205,15 @@ ${topicContext}
 6. DO NOT hallucinate or fabricate information not present in the sections
 7. When the source document contains a numerical value (percentage, monetary amount, ratio, AUC, p-value, sample size, coefficient), quote it VERBATIM with the source citation. Do not paraphrase or round.
 8. When the source document contains a table relevant to this topic, REPRODUCE THE TABLE in your output. Do not summarise tables into prose.
-9. Distinguish "Evidence not found after full corpus scan" from "Non-Compliant". The former applies when the corpus does not address the topic; the latter when the corpus addresses it and falls short.\n\n`;
-            topicPrompt += `${outputFormatInstructions}\n\n`;
-            topicPrompt += `## USER QUESTION (OVERARCHING):\n${question}\n\n`;
-            topicPrompt += `## TOPIC TO ASSESS (this call):\nTopic ${i + 1} [${topicId}]: ${topicText}\n\n`;
-            topicPrompt += `INSTRUCTIONS:
+9. Distinguish "Evidence not found after full corpus scan" from "Non-Compliant". The former applies when the corpus does not address the topic; the latter when the corpus addresses it and falls short.
+
+## USER QUESTION (OVERARCHING):
+${question}
+
+## TOPIC TO ASSESS (this call):
+Topic ${i + 1} [${topicId}]: ${topicText}
+
+INSTRUCTIONS:
 - Produce ONE assessment block for this single topic
 - Follow the output format above
 - Quote numbers and tables verbatim
@@ -1278,7 +1221,11 @@ ${topicContext}
 - If evidence is absent after full corpus scan, state so explicitly`;
 
             // --- Per-topic LLM call ---
-            const topicAnswer = await generateTopicAnswer(topicPrompt, GOOGLE_API_KEY, 32768, 0.5);
+            const topicAnswer = await generateTopicAnswer(topicPrompt, llm, {
+              system: topicSystem,
+              maxOutputTokens: 32768,
+              temperature: 0.5,
+            });
 
             // Coverage footer per topic
             const tablesObserved = topicChunks.filter((c) => /\|.*\|/.test(c.content) || /\bTable\b/i.test(c.content)).length;
@@ -1360,53 +1307,17 @@ Generate a structured report with:
         finalPrompt += `\n\n## REASONING FRAMEWORK:${reasoningPromptAddition}`;
       }
 
-      console.log("=== SENDING TO GEMINI ===");
+      console.log(`=== SENDING TO ${llm.model} ===`);
       console.log("Prompt length:", finalPrompt.length, "characters");
       console.log("Context length:", contextText.length, "characters");
       console.log("Number of chunks used:", chunks.length);
 
-      // Make request to Gemini API
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 120000);
-
-      let response;
-      try {
-        response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GOOGLE_API_KEY}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: finalPrompt }] }],
-              generationConfig: {
-                temperature: 0.5,             // was 0.3 — allows elaboration without harming fidelity
-                maxOutputTokens: 32768,       // was 8192 — raises ceiling so single-call runs aren't truncated
-              },
-            }),
-            signal: controller.signal,
-          },
-        );
-
-        clearTimeout(timeoutId);
-      } catch (error: unknown) {
-        clearTimeout(timeoutId);
-
-        if (error instanceof Error && error.name === "AbortError") {
-          throw new Error("Request timeout: The AI model took too long to respond.");
-        }
-        throw error;
-      }
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Gemini API error:", response.status, errorText);
-        throw new Error(`Gemini API error: ${errorText}`);
-      }
-
-      const data = await response.json();
-      console.log("Gemini response received");
-
-      answer = data.candidates?.[0]?.content?.parts?.[0]?.text || "No answer generated";
+      // Generate via the selected model (Gemini or Claude)
+      answer = await generateTopicAnswer(finalPrompt, llm, {
+        maxOutputTokens: 32768,
+        temperature: 0.5,
+      }) || "No answer generated";
+      console.log("Model response received");
     }
 
     // =====================================================
@@ -1421,7 +1332,7 @@ Generate a structured report with:
         processedQuestion,
         answer,
         documentNames,
-        GOOGLE_API_KEY
+        llm
       );
       skillsApplied.push('Verification');
       console.log(`Verification: verified=${verification.verified}, severity=${verification.severity}`);
@@ -1436,7 +1347,7 @@ Generate a structured report with:
         answer,
         documentNames,
         sources.length,
-        GOOGLE_API_KEY
+        llm
       );
       skillsApplied.push('Confidence');
       console.log(`Confidence: ${confidence.score} (${confidence.label})`);
@@ -1451,7 +1362,7 @@ Generate a structured report with:
 
     if (generateReport && answer) {
       const docNames = documents?.map(d => d.name) || [];
-      const reportContext = await generateReportContext(answer, question, docNames, customPrompt, GOOGLE_API_KEY);
+      const reportContext = await generateReportContext(answer, question, docNames, customPrompt, llm);
       reportHtml = generateReportHtml(answer, docNames, reportContext, sources);
       reportData = { answer, documents: docNames, reportContext, sources };
     }
@@ -1504,7 +1415,7 @@ async function generateReportContext(
   question: string,
   docNames: string[],
   customPrompt: string | null,
-  apiKey: string
+  llm: LLMConfig
 ): Promise<Record<string, unknown>> {
   const contextPrompt = `Based on the following analysis, generate report metadata:
 
@@ -1532,25 +1443,10 @@ Generate JSON:
 Respond with ONLY the JSON.`;
 
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: contextPrompt }] }],
-          generationConfig: { temperature: 0.3 },
-        }),
-      }
-    );
-
-    if (response.ok) {
-      const data = await response.json();
-      const contextText = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-      const jsonMatch = contextText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
-      }
+    const contextText = await callLLM(contextPrompt, llm, { temperature: 0.3 }) || "{}";
+    const jsonMatch = contextText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
     }
   } catch (e) {
     console.error("Error generating report context:", e);
