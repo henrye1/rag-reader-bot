@@ -111,17 +111,17 @@ interface OutputFormatConfig {
 }
 
 const DEFAULT_OUTPUT_FORMAT: OutputFormatConfig = {
-  output_style: 'structured',
+  output_style: 'audit',                  // was 'structured' — gives Exec Summary + Detailed Analysis + Methodology + Conclusions structure
   include_executive_summary: true,
   include_per_document_analysis: true,
-  include_cross_references: false,
-  extract_tables: false,
-  extract_statistics: false,
-  extract_model_parameters: false,
-  citation_format: 'inline',
+  include_cross_references: true,         // was false — enables cross-reference section
+  extract_tables: true,                   // was false — instructs model to extract tables from source
+  extract_statistics: true,               // was false — instructs model to extract statistics
+  extract_model_parameters: true,         // was false — instructs model to extract model parameters (AUCs, coefficients, etc.)
+  citation_format: 'detailed',            // was 'inline' — adds section / page / chunk references
   include_page_numbers: true,
-  include_section_references: false,
-  response_detail_level: 'standard',
+  include_section_references: true,       // was false — adds section references to citations
+  response_detail_level: 'comprehensive', // was 'standard' — instructs model to provide exhaustive analysis
 };
 
 // Generate formatting instructions based on output format config
@@ -268,6 +268,180 @@ interface Source {
   preview: string;
 }
 
+/**
+ * Build context text + source list from a set of retrieved chunks.
+ */
+function buildContextFromChunks(chunks: RetrievalChunk[]): { contextText: string; sources: Source[] } {
+  const sources: Source[] = [];
+
+  if (chunks.length === 0) {
+    return { contextText: "No relevant content was found in the uploaded documents for this query.", sources };
+  }
+
+  const contextText = chunks.map((chunk) => {
+    const relevanceScore = chunk.final_score ?? chunk.rerank_score ?? chunk.similarity;
+    sources.push({
+      documentName: chunk.document_name,
+      chunkIndex: chunk.chunk_index,
+      similarity: relevanceScore,
+      preview: chunk.content.substring(0, 200) + (chunk.content.length > 200 ? '...' : ''),
+    });
+    const isParent = chunk.is_parent ? ' [Parent Context]' : '';
+    return `[Source: ${chunk.document_name}, Chunk ${chunk.chunk_index + 1}${isParent}, Relevance: ${(relevanceScore * 100).toFixed(1)}%]\n${chunk.content}`;
+  }).join('\n\n---\n\n');
+
+  return { contextText, sources };
+}
+
+/**
+ * Run a single Gemini call for one topic. Returns the model's answer text.
+ */
+async function generateTopicAnswer(
+  topicPrompt: string,
+  apiKey: string,
+  maxOutputTokens: number = 32768,
+  temperature: number = 0.5,
+): Promise<string> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 120000);
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: topicPrompt }] }],
+          generationConfig: { temperature, maxOutputTokens },
+        }),
+        signal: controller.signal,
+      },
+    );
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  } catch (error: unknown) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Request timeout: The AI model took too long to respond.");
+    }
+    throw error;
+  }
+}
+
+/**
+ * Retrieve chunks for a single query, applying the standard retrieval pipeline
+ * (semantic search, optional fusion, hierarchical expansion, CRAG, Self-RAG,
+ * reranking, top-k truncation). Thin wrapper so retrieval can run per-topic.
+ */
+async function retrieveChunksForQuery(
+  query: string,
+  documentIds: string[],
+  supabase: ReturnType<typeof getSupabaseClient>,
+  retrievalConfig: RetrievalConfig,
+  ragConfig: RagConfig,
+  apiKey: string,
+): Promise<RetrievalChunk[]> {
+  const topK = ragConfig.top_k;
+  const threshold = ragConfig.similarity_threshold;
+
+  const performRetrieval = async (q: string): Promise<RetrievalChunk[]> => {
+    const qEmbed = await generateQueryEmbedding(q, apiKey);
+    const { data } = await supabase.rpc('match_document_chunks', {
+      query_embedding: `[${qEmbed.embedding.join(',')}]`,
+      match_threshold: threshold,
+      match_count: retrievalConfig.enable_fusion ? topK * 2 : topK,
+      filter_document_ids: documentIds,
+    });
+    return (data || []).map((c: MatchedChunk) => ({
+      id: c.id || '',
+      document_id: c.document_id,
+      document_name: c.document_name,
+      chunk_index: c.chunk_index,
+      content: c.content,
+      similarity: c.similarity,
+    }));
+  };
+
+  // Initial semantic retrieval
+  const queryEmbedding = await generateQueryEmbedding(query, apiKey);
+  const retrievalTopK = retrievalConfig.enable_fusion ? topK * 2 : topK;
+  const { data: matchedChunks, error: searchError } = await supabase
+    .rpc('match_document_chunks', {
+      query_embedding: `[${queryEmbedding.embedding.join(',')}]`,
+      match_threshold: threshold,
+      match_count: retrievalTopK,
+      filter_document_ids: documentIds,
+    });
+
+  if (searchError) {
+    throw new Error(`Search error: ${searchError.message}`);
+  }
+
+  let chunks: RetrievalChunk[] = (matchedChunks || []).map((c: MatchedChunk) => ({
+    id: c.id || '',
+    document_id: c.document_id,
+    document_name: c.document_name,
+    chunk_index: c.chunk_index,
+    content: c.content,
+    similarity: c.similarity,
+  }));
+
+  // Fusion (semantic + keyword)
+  if (retrievalConfig.enable_fusion && chunks.length > 0) {
+    const keywordResults = keywordSearch(query, chunks, topK);
+    if (retrievalConfig.fusion_strategy === 'rrf') {
+      chunks = fusionRRF(chunks, keywordResults);
+    } else {
+      chunks = fusionWeighted(chunks, keywordResults, retrievalConfig.fusion_weights);
+    }
+  }
+
+  // Hierarchical expansion to parent chunks
+  if (retrievalConfig.enable_hierarchical && retrievalConfig.expand_to_parent && chunks.length > 0) {
+    chunks = await expandToParentChunks(chunks, retrievalConfig.max_hierarchy_depth, supabase);
+  }
+
+  // CRAG - Corrective RAG
+  if (retrievalConfig.enable_crag && chunks.length > 0) {
+    const cragResult = await correctiveRAG(
+      query,
+      chunks,
+      retrievalConfig.crag_relevance_threshold,
+      apiKey,
+      performRetrieval,
+    );
+    if (cragResult.corrected) chunks = cragResult.chunks;
+  }
+
+  // Self-RAG - iterative refinement
+  if (retrievalConfig.enable_self_rag && chunks.length > 0) {
+    const selfRagResult = await selfRAG(
+      query,
+      chunks,
+      retrievalConfig.self_rag_threshold,
+      retrievalConfig.max_self_rag_iterations,
+      apiKey,
+      performRetrieval,
+    );
+    if (selfRagResult.refined) chunks = selfRagResult.chunks;
+  }
+
+  // Reranking
+  if (retrievalConfig.enable_reranking && retrievalConfig.reranker_model !== 'none' && chunks.length > 0) {
+    chunks = await rerankChunks(query, chunks, retrievalConfig.rerank_top_n, apiKey);
+  }
+
+  return chunks.slice(0, topK);
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -326,6 +500,20 @@ serve(async (req) => {
       ...DEFAULT_OUTPUT_FORMAT,
       ...(requestOutputFormat || {}),
     };
+
+    // Hard override for IFRS 9 / audit-grade workloads — force the strongest
+    // configuration regardless of UI state.
+    if (skillName?.toLowerCase().includes('ifrs') || skillName?.toLowerCase().includes('audit')) {
+      outputFormat.output_style = 'audit';
+      outputFormat.response_detail_level = 'comprehensive';
+      outputFormat.extract_tables = true;
+      outputFormat.extract_statistics = true;
+      outputFormat.extract_model_parameters = true;
+      outputFormat.citation_format = 'detailed';
+      retrievalConfig.enable_reranking = true;
+      retrievalConfig.reranker_model = 'llm-rerank';
+      ragConfig.top_k = Math.max(ragConfig.top_k, 25);
+    }
 
     // POPIA compliance configuration
     const popia: POPIAConfig = {
@@ -431,7 +619,7 @@ IMPORTANT GUIDELINES:
               contents: [{ parts: [{ text: researchPrompt }] }],
               generationConfig: {
                 temperature: 0.5,
-                maxOutputTokens: 8192,
+                maxOutputTokens: 32768,    // was 8192
               },
             }),
             signal: controller.signal,
@@ -1014,35 +1202,104 @@ You have access to retrieved sections from organisation-specific documents inclu
    - Do not invent values, policies, or technical details
    - If you cannot answer from the retrieved sections, say so clearly`;
 
-    // If questions template is provided, use it to structure the response
-    if (questionsTemplate && Array.isArray(questionsTemplate) && questionsTemplate.length > 0) {
-      finalPrompt = defaultPrompt;
+    // =====================================================
+    // ANSWER GENERATION
+    // =====================================================
+    let answer = "No answer generated";
 
-      if (customPrompt) {
-        finalPrompt += `\n\n## EXPERT KNOWLEDGE / ASSESSMENT FRAMEWORK:\n${customPrompt}\n\n`;
+    // If a questions template is provided, run a SEPARATE retrieval + LLM call per topic.
+    // Each topic gets its full output-token budget and topic-specific retrieval (e.g. PD
+    // calibration tables for the PD topic, recovery curves for the LGD topic) rather than
+    // sharing one composite retrieval and a single token budget across all topics.
+    if (questionsTemplate && Array.isArray(questionsTemplate) && questionsTemplate.length > 0) {
+      skillsApplied.push('Per-Topic Assessment');
+
+      // Reset aggregate evidence arrays so they reflect per-topic retrieval, not the
+      // composite pre-retrieval pass above.
+      sources = [];
+      chunks = [];
+
+      const BATCH_SIZE = 4;
+      const topicAnswers: string[] = new Array(questionsTemplate.length);
+
+      for (let batchStart = 0; batchStart < questionsTemplate.length; batchStart += BATCH_SIZE) {
+        const batchEnd = Math.min(batchStart + BATCH_SIZE, questionsTemplate.length);
+        const batchPromises: Promise<void>[] = [];
+
+        for (let i = batchStart; i < batchEnd; i++) {
+          batchPromises.push((async () => {
+            const q = questionsTemplate[i] as { question_id?: string; question?: string; text?: string } | string;
+            const topicText = typeof q === 'string' ? q : (q.question || q.text || JSON.stringify(q));
+            const topicId = typeof q === 'string' ? String(i + 1) : (q.question_id || String(i + 1));
+            console.log(`[Topic ${i + 1}/${questionsTemplate.length}] ${topicText.substring(0, 80)}...`);
+
+            // --- Per-topic retrieval ---
+            const topicQuery = `${question}\n\nTopic: ${topicText}`;
+            const topicChunks = await retrieveChunksForQuery(
+              topicQuery,
+              documentIds,
+              supabase,
+              retrievalConfig,
+              ragConfig,
+              GOOGLE_API_KEY,
+            );
+            const { contextText: topicContext, sources: topicSources } = buildContextFromChunks(topicChunks);
+
+            // --- Per-topic prompt ---
+            let topicPrompt = defaultPrompt;
+            if (customPrompt) {
+              topicPrompt += `\n\n## EXPERT KNOWLEDGE / ASSESSMENT FRAMEWORK:\n${customPrompt}\n\n`;
+            }
+            topicPrompt += `\n\n## RETRIEVED DOCUMENT CONTEXT (for this topic):
+You have been provided with ${topicChunks.length} relevant section(s) from the source documents for this specific topic.
+
+**RETRIEVED SECTIONS:**
+
+${topicContext}
+
+**CRITICAL REQUIREMENTS:**
+1. Base your response ONLY on the retrieved sections above
+2. CITE specific sources using the format: [Source: Document Name, Chunk X]
+3. Quote exact text from the retrieved sections where relevant
+4. If the retrieved sections don't contain enough information, state: "Evidence not found after full corpus scan"
+5. DO NOT use general knowledge
+6. DO NOT hallucinate or fabricate information not present in the sections
+7. When the source document contains a numerical value (percentage, monetary amount, ratio, AUC, p-value, sample size, coefficient), quote it VERBATIM with the source citation. Do not paraphrase or round.
+8. When the source document contains a table relevant to this topic, REPRODUCE THE TABLE in your output. Do not summarise tables into prose.
+9. Distinguish "Evidence not found after full corpus scan" from "Non-Compliant". The former applies when the corpus does not address the topic; the latter when the corpus addresses it and falls short.\n\n`;
+            topicPrompt += `${outputFormatInstructions}\n\n`;
+            topicPrompt += `## USER QUESTION (OVERARCHING):\n${question}\n\n`;
+            topicPrompt += `## TOPIC TO ASSESS (this call):\nTopic ${i + 1} [${topicId}]: ${topicText}\n\n`;
+            topicPrompt += `INSTRUCTIONS:
+- Produce ONE assessment block for this single topic
+- Follow the output format above
+- Quote numbers and tables verbatim
+- Cite sources with chunk references
+- If evidence is absent after full corpus scan, state so explicitly`;
+
+            // --- Per-topic LLM call ---
+            const topicAnswer = await generateTopicAnswer(topicPrompt, GOOGLE_API_KEY, 32768, 0.5);
+
+            // Coverage footer per topic
+            const tablesObserved = topicChunks.filter((c) => /\|.*\|/.test(c.content) || /\bTable\b/i.test(c.content)).length;
+            const footer = `\n\n_Source coverage: ${topicChunks.length} chunks retrieved; approx tables observed in retrieved chunks: ${tablesObserved}._\n`;
+            topicAnswers[i] = (topicAnswer || '*No response generated for this topic.*') + footer;
+
+            // Aggregate evidence across topics for the final response
+            sources.push(...topicSources);
+            chunks.push(...topicChunks);
+          })());
+        }
+
+        await Promise.all(batchPromises);
+        console.log(`Batch ${batchStart}-${batchEnd - 1} complete`);
       }
 
-      finalPrompt += documentsInstruction;
-
-      finalPrompt += `## USER QUESTION/INSTRUCTION:\n${question}\n\n## QUESTIONS TO ANSWER:\n\n`;
-
-      questionsTemplate.forEach((q: { question_id?: string; question?: string; text?: string } | string, index: number) => {
-        const questionText = typeof q === 'string' ? q : (q.question || q.text || JSON.stringify(q));
-        const questionId = typeof q === 'string' ? String(index + 1) : (q.question_id || String(index + 1));
-        finalPrompt += `Question ${index + 1} [${questionId}]: ${questionText}\n\n`;
-      });
-
-      finalPrompt += `\n${outputFormatInstructions}\n\n## RESPONSE INSTRUCTIONS:
-For EACH question above:
-1. Search the retrieved sections for relevant information
-2. Provide a COMPLETE, DETAILED response using ONLY information from the retrieved sections
-3. Structure your answer according to the OUTPUT FORMAT specified above
-4. CITE specific sources using the CITATION FORMAT specified above
-5. If information is not in the retrieved sections, state so clearly
-
-**CRITICAL:** Answer ALL questions. Follow the output format. Cite your sources. Never fabricate information.`;
-
+      answer = topicAnswers.join('\n\n---\n\n');
     } else {
+      // -------------------------------------------------
+      // Single-call path (no questions template)
+      // -------------------------------------------------
       finalPrompt = defaultPrompt;
 
       if (customPrompt) {
@@ -1087,70 +1344,70 @@ For EACH question above:
 - CITE your sources using the CITATION FORMAT specified above
 - If information is not in the retrieved sections, state so clearly`;
       }
-    }
 
-    if (generateReport) {
-      finalPrompt += `\n\n## REPORT GENERATION:
+      if (generateReport) {
+        finalPrompt += `\n\n## REPORT GENERATION:
 Generate a structured report with:
 - Executive Summary with critical findings
 - Risk Assessment with indicators
 - Detailed findings with structured sections
 - Recommendations
 - Use professional styling`;
-    }
-
-    // Add multi-step reasoning framework if enabled
-    if (reasoningPromptAddition) {
-      finalPrompt += `\n\n## REASONING FRAMEWORK:${reasoningPromptAddition}`;
-    }
-
-    console.log("=== SENDING TO GEMINI ===");
-    console.log("Prompt length:", finalPrompt.length, "characters");
-    console.log("Context length:", contextText.length, "characters");
-    console.log("Number of chunks used:", chunks.length);
-
-    // Make request to Gemini API
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120000);
-
-    let response;
-    try {
-      response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GOOGLE_API_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: finalPrompt }] }],
-            generationConfig: {
-              temperature: 0.3,
-              maxOutputTokens: 8192,
-            },
-          }),
-          signal: controller.signal,
-        },
-      );
-
-      clearTimeout(timeoutId);
-    } catch (error: unknown) {
-      clearTimeout(timeoutId);
-
-      if (error instanceof Error && error.name === "AbortError") {
-        throw new Error("Request timeout: The AI model took too long to respond.");
       }
-      throw error;
+
+      // Add multi-step reasoning framework if enabled
+      if (reasoningPromptAddition) {
+        finalPrompt += `\n\n## REASONING FRAMEWORK:${reasoningPromptAddition}`;
+      }
+
+      console.log("=== SENDING TO GEMINI ===");
+      console.log("Prompt length:", finalPrompt.length, "characters");
+      console.log("Context length:", contextText.length, "characters");
+      console.log("Number of chunks used:", chunks.length);
+
+      // Make request to Gemini API
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
+
+      let response;
+      try {
+        response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GOOGLE_API_KEY}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: finalPrompt }] }],
+              generationConfig: {
+                temperature: 0.5,             // was 0.3 — allows elaboration without harming fidelity
+                maxOutputTokens: 32768,       // was 8192 — raises ceiling so single-call runs aren't truncated
+              },
+            }),
+            signal: controller.signal,
+          },
+        );
+
+        clearTimeout(timeoutId);
+      } catch (error: unknown) {
+        clearTimeout(timeoutId);
+
+        if (error instanceof Error && error.name === "AbortError") {
+          throw new Error("Request timeout: The AI model took too long to respond.");
+        }
+        throw error;
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Gemini API error:", response.status, errorText);
+        throw new Error(`Gemini API error: ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log("Gemini response received");
+
+      answer = data.candidates?.[0]?.content?.parts?.[0]?.text || "No answer generated";
     }
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Gemini API error:", response.status, errorText);
-      throw new Error(`Gemini API error: ${errorText}`);
-    }
-
-    const data = await response.json();
-    console.log("Gemini response received");
-
-    const answer = data.candidates?.[0]?.content?.parts?.[0]?.text || "No answer generated";
 
     // =====================================================
     // RAG SKILLS PIPELINE - POST-RETRIEVAL

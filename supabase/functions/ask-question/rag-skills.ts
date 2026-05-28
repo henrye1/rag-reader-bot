@@ -372,12 +372,12 @@ export interface RagConfig {
  */
 export const DEFAULT_RAG_CONFIG: RagConfig = {
   enable_hyde: false,
-  enable_query_rewrite: false,
-  enable_decomposition: false,
+  enable_query_rewrite: true,             // was false — helps retrieval match terminology
+  enable_decomposition: true,             // was false — helps complex multi-part questions
   enable_verification: false,
   enable_confidence: false,
   enable_reasoning: false,
-  top_k: 15,
+  top_k: 25,                              // was 15 — gives the model more evidence per topic
   similarity_threshold: 0.3,
 };
 
@@ -428,9 +428,9 @@ export const DEFAULT_RETRIEVAL_CONFIG: RetrievalConfig = {
   enable_full_document_mode: false,
   full_document_max_chars: 100000,
 
-  enable_reranking: false,
-  reranker_model: 'none',
-  rerank_top_n: 10,
+  enable_reranking: true,                 // was false — re-orders retrieved chunks by relevance
+  reranker_model: 'llm-rerank',           // was 'none' — uses Gemini to rerank
+  rerank_top_n: 15,                       // was 10 — keep top 15 after rerank
 
   enable_fusion: false,
   fusion_strategy: 'rrf',
