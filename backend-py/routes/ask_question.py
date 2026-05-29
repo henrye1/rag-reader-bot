@@ -147,180 +147,40 @@ def _build_output_format_instructions(config: dict) -> str:
     return "\n\n".join(instructions)
 
 
-def _format_analysis_content(answer: str) -> str:
-    html = answer
-    # Strip source citations
-    html = re.sub(r"\[Source:\s*[^\]]+\]", "", html, flags=re.IGNORECASE)
-    html = re.sub(r"\[Chunk\s*\d+[^\]]*\]", "", html, flags=re.IGNORECASE)
-    html = re.sub(r"\(Source:\s*[^)]+\)", "", html, flags=re.IGNORECASE)
-    html = re.sub(r"\s{2,}", " ", html)
-    html = re.sub(r"\n\s*\n\s*\n", "\n\n", html)
+async def _route_to_section(question: str, answer: str, sections: list[dict], llm: dict) -> dict:
+    """Pick the best-matching section for a follow-up answer.
 
-    # Markdown -> HTML
-    html = re.sub(r"^### (.+)$", r"<h3>\1</h3>", html, flags=re.MULTILINE)
-    html = re.sub(r"^## (.+)$", r"<h2>\1</h2>", html, flags=re.MULTILINE)
-    html = re.sub(r"^# (.+)$", r"<h2>\1</h2>", html, flags=re.MULTILINE)
-    html = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html)
-    html = re.sub(r"^\s*[-*]\s+(.+)$", r"<li>\1</li>", html, flags=re.MULTILINE)
-    html = re.sub(r"(<li>.*?</li>\n?)+", r"<ul>\g<0></ul>", html)
-    html = html.replace("\n\n", "</p><p>")
-    html = "<p>" + html + "</p>"
-    html = re.sub(r"<p>\s*</p>", "", html)
-    html = re.sub(r"<p>\s*<h", "<h", html)
-    html = re.sub(r"</h([23])>\s*</p>", r"</h\1>", html)
+    Returns {"targetSectionId": str|None, "sectionTitle": str, "isNew": bool}.
+    """
+    if not sections:
+        return {"targetSectionId": None, "sectionTitle": question[:60], "isNew": True}
 
-    return html
+    titles = "\n".join(f'- id={s["id"]}: {s["title"]}' for s in sections)
+    prompt = f"""You route a Q&A answer into the best section of a working document.
 
+SECTIONS:
+{titles}
 
-async def _generate_report_context(answer: str, question: str, doc_names: list[str], custom_prompt: str | None, llm: dict) -> dict:
-    prompt = f"""Based on the following analysis, generate report metadata:
+QUESTION: {question}
 
-ANALYSIS:
-{answer[:1500]}
+ANSWER (first 800 chars):
+{answer[:800]}
 
-QUESTION:
-{question}
-
-CONTEXT:
-{custom_prompt or 'General document analysis'}
-
-DOCUMENTS: {len(doc_names)}
-
-Generate JSON:
-{{
-  "reportTitle": "Short title",
-  "reportType": "Analysis type",
-  "entityName": "Main subject",
-  "reportDescription": "Brief description",
-  "keyMetrics": [{{"label": "Metric", "value": "Value", "status": "positive/neutral/negative/info"}}],
-  "summary": "2-3 sentence summary"
-}}
-
-Respond with ONLY the JSON."""
-
+Choose the single best existing section, or propose a NEW section if none fit.
+Respond with ONLY JSON:
+{{"targetSectionId": "<id or null>", "sectionTitle": "<existing or new title>", "isNew": <true|false>}}"""
     try:
-        result = await call_llm(prompt, llm, temperature=0.3)
+        result = await call_llm(prompt, llm, temperature=0.0)
         parsed = extract_json(result)
-        if parsed and isinstance(parsed, dict):
-            return parsed
+        if parsed and isinstance(parsed, dict) and "isNew" in parsed:
+            return {
+                "targetSectionId": parsed.get("targetSectionId"),
+                "sectionTitle": parsed.get("sectionTitle") or question[:60],
+                "isNew": bool(parsed.get("isNew")),
+            }
     except Exception as e:
-        print(f"Error generating report context: {e}")
-
-    return {
-        "reportTitle": "Document Analysis Report",
-        "reportType": "General Analysis",
-        "entityName": doc_names[0] if len(doc_names) == 1 else f"{len(doc_names)} Documents",
-        "reportDescription": "Analysis based on retrieved document sections.",
-        "keyMetrics": [{"label": "Documents Analyzed", "value": str(len(doc_names)), "status": "info"}],
-        "summary": "Analysis completed using RAG-based document retrieval.",
-    }
-
-
-def _generate_report_html(answer: str, doc_names: list[str], report_context: dict, sources: list[dict]) -> str:
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-    title = report_context.get("reportTitle", "Document Analysis Report")
-    entity = report_context.get("entityName", "Analysis Subject")
-    desc = report_context.get("reportDescription", "Comprehensive document analysis")
-    report_type = report_context.get("reportType", "General Analysis")
-    summary = report_context.get("summary", "Analysis completed successfully.")
-    metrics = report_context.get("keyMetrics", [])
-
-    primary_color = "#2196f3"
-    has_negative = any(m.get("status") == "negative" for m in metrics)
-    has_positive = any(m.get("status") == "positive" for m in metrics)
-    if has_negative:
-        primary_color = "#ff8c00"
-    elif has_positive:
-        primary_color = "#4caf50"
-
-    status_colors = {"positive": "#4caf50", "negative": "#ff8c00", "neutral": "#666", "info": "#2196f3"}
-
-    metrics_html = ""
-    if metrics:
-        cards = ""
-        for m in metrics:
-            bg = status_colors.get(m.get("status", "info"), "#666")
-            cards += f'<div class="risk-card" style="background: {bg};"><h3>{m.get("label", "")}</h3><div class="value">{m.get("value", "")}</div></div>'
-        metrics_html = f'<div class="risk-summary">{cards}</div>'
-
-    sources_html = ""
-    if sources:
-        rows = ""
-        for s in sources:
-            sim = s.get("similarity", 0)
-            badge = "low" if sim > 0.7 else ("medium" if sim > 0.5 else "high")
-            rows += f'<tr><td>{s.get("documentName", "")}</td><td>Chunk {s.get("chunkIndex", 0) + 1}</td><td><span class="badge badge-{badge}">{sim * 100:.1f}%</span></td><td>{s.get("preview", "")}</td></tr>'
-        sources_html = f"""<div class="section"><h2>SOURCES USED</h2><table><thead><tr><th>Document</th><th>Section</th><th>Relevance</th><th>Preview</th></tr></thead><tbody>{rows}</tbody></table></div>"""
-
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{title} - {entity}</title>
-  <style>
-    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-    body {{ font-family: 'Segoe UI', Tahoma, sans-serif; line-height: 1.6; color: #333; background: #f5f5f5; padding: 20px; }}
-    .container {{ max-width: 1200px; margin: 0 auto; background: white; padding: 30px; box-shadow: 0 0 20px rgba(0,0,0,0.1); }}
-    .header {{ border-bottom: 4px solid {primary_color}; padding-bottom: 20px; margin-bottom: 30px; }}
-    .header h1 {{ color: {primary_color}; font-size: 28px; margin-bottom: 10px; }}
-    .header .subtitle {{ color: #666; font-size: 14px; line-height: 1.8; }}
-    .alert-box {{ padding: 20px; margin: 20px 0; border-left: 5px solid; border-radius: 4px; }}
-    .alert-medium {{ background: #e3f2fd; border-color: #2196f3; }}
-    .section {{ margin: 30px 0; padding: 20px; background: #fafafa; border-radius: 8px; }}
-    .section h2 {{ color: #333; font-size: 20px; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #ddd; }}
-    .section h3 {{ color: #555; font-size: 16px; margin: 15px 0 10px 0; }}
-    .section p {{ margin: 10px 0; line-height: 1.8; }}
-    .section ul {{ margin: 10px 0 10px 20px; line-height: 2; }}
-    .section li {{ margin: 5px 0; }}
-    table {{ width: 100%; border-collapse: collapse; background: white; font-size: 13px; margin: 15px 0; }}
-    th {{ background: #333; color: white; padding: 12px; text-align: left; font-weight: 600; }}
-    td {{ padding: 10px 12px; border-bottom: 1px solid #ddd; vertical-align: top; }}
-    tr:hover {{ background: #f5f5f5; }}
-    .badge {{ display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; }}
-    .badge-low {{ background: #4caf50; color: white; }}
-    .badge-medium {{ background: #ffc107; color: black; }}
-    .badge-high {{ background: #ff8c00; color: white; }}
-    .risk-summary {{ display: flex; gap: 15px; margin: 20px 0; flex-wrap: wrap; }}
-    .risk-card {{ flex: 1; min-width: 200px; padding: 20px; border-radius: 8px; text-align: center; color: white; }}
-    .risk-card h3 {{ font-size: 14px; margin-bottom: 10px; opacity: 0.9; text-transform: uppercase; }}
-    .risk-card .value {{ font-size: 32px; font-weight: bold; }}
-    .footer {{ margin-top: 40px; padding-top: 20px; border-top: 2px solid #ddd; text-align: center; color: #666; font-size: 12px; }}
-    strong {{ font-weight: 600; }}
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>{title.upper()}</h1>
-      <div class="subtitle">
-        <strong>Subject:</strong> {entity}<br>
-        <strong>Analysis Type:</strong> {report_type}<br>
-        <strong>Report Date:</strong> {timestamp}<br>
-        <strong>Documents Analyzed:</strong> {len(doc_names)}<br>
-        <strong>Sources Retrieved:</strong> {len(sources)}
-      </div>
-    </div>
-    <div class="alert-box alert-medium">
-      <h2 style="color: {primary_color}; margin-bottom: 10px;">EXECUTIVE SUMMARY</h2>
-      <p><strong>Description:</strong> {desc}</p>
-      <p style="margin-top: 10px;"><strong>Key Findings:</strong> {summary}</p>
-    </div>
-    {metrics_html}
-    <div class="section">
-      <h2>DETAILED ANALYSIS</h2>
-      {_format_analysis_content(answer)}
-    </div>
-    {sources_html}
-    <div class="footer">
-      <p><strong>CONFIDENTIAL REPORT</strong></p>
-      <p>Generated by: RAG Document Analysis System</p>
-      <p>Report ID: RPT-{int(time.time() * 1000)}</p>
-    </div>
-  </div>
-</body>
-</html>"""
+        print(f"Section routing failed: {e}")
+    return {"targetSectionId": sections[0]["id"], "sectionTitle": sections[0]["title"], "isNew": False}
 
 
 def _build_context_from_chunks(chunks: list[dict]) -> tuple[str, list[dict]]:
@@ -447,7 +307,6 @@ async def ask_question(request: Request):
         document_ids = body.get("documentIds", [])
         custom_prompt = body.get("customPrompt")
         questions_template = body.get("questionsTemplate")
-        generate_report = body.get("generateReport", False)
         rag_settings = body.get("ragSettings", {})
         request_rag_config = body.get("ragConfig", {})
         request_retrieval_config = body.get("retrievalConfig", {})
@@ -459,6 +318,7 @@ async def ask_question(request: Request):
         skill_output_format = body.get("skillOutputFormat")
         popia_config_raw = body.get("popiaConfig", {})
         model = body.get("model")
+        document_sections = body.get("documentSections", [])  # [{"id": str, "title": str}]
 
         # Provider-routing config for generation calls (Gemini or Claude).
         # Embeddings/retrieval keep using the Google key directly.
@@ -1102,15 +962,6 @@ You have been provided with {len(topic_chunks)} relevant section(s) from the sou
             # Per-topic loop already produced the answer; skip the single-call path.
             answer = per_topic_answer
         else:
-            if generate_report:
-                final_prompt += """\n\n## REPORT GENERATION:
-Generate a structured report with:
-- Executive Summary with critical findings
-- Risk Assessment with indicators
-- Detailed findings with structured sections
-- Recommendations
-- Use professional styling"""
-
             if reasoning_addition:
                 final_prompt += f"\n\n## REASONING FRAMEWORK:{reasoning_addition}"
 
@@ -1131,17 +982,15 @@ Generate a structured report with:
         # =====================================================
         verification = None
         confidence = None
-        report_context = None
+        section_routing = None
 
         tasks: dict[str, "asyncio.Future"] = {}
         if rag_config.get("enable_verification") and answer != "No answer generated":
             tasks["verification"] = verify_answer(processed_question, answer, document_names, api_key)
         if rag_config.get("enable_confidence") and answer != "No answer generated":
             tasks["confidence"] = assess_confidence(processed_question, answer, document_names, len(sources), api_key)
-        if generate_report and answer:
-            tasks["report_context"] = _generate_report_context(
-                answer, question, [d["name"] for d in documents], custom_prompt, llm
-            )
+        if document_sections and answer != "No answer generated":
+            tasks["section_routing"] = _route_to_section(question, answer, document_sections, llm)
 
         if tasks:
             results = await asyncio.gather(*tasks.values(), return_exceptions=True)
@@ -1155,24 +1004,14 @@ Generate a structured report with:
                 elif key == "confidence":
                     confidence = res
                     skills_applied.append("Confidence")
-                elif key == "report_context":
-                    report_context = res
+                elif key == "section_routing":
+                    section_routing = res
 
         processing_ms = int((time.time() - start_time) * 1000)
 
-        # Build report HTML from the (already-generated) report context
-        report_html = None
-        report_data = None
-
-        if generate_report and answer and report_context is not None:
-            doc_names = [d["name"] for d in documents]
-            report_html = _generate_report_html(answer, doc_names, report_context, sources)
-            report_data = {"answer": answer, "documents": doc_names, "reportContext": report_context, "sources": sources}
-
         result = {
             "answer": answer,
-            "reportHtml": report_html,
-            "reportData": report_data,
+            "sectionRouting": section_routing,
             "sources": sources,
             "originalQuestion": question,
             "processedQuestion": processed_question if processed_question != question else None,
