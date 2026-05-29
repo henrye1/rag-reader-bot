@@ -32,17 +32,17 @@ DEFAULT_INGESTION_CONFIG = {
 }
 
 DEFAULT_OUTPUT_FORMAT = {
-    "output_style": "structured",
+    "output_style": "audit",
     "include_executive_summary": True,
     "include_per_document_analysis": True,
-    "include_cross_references": False,
-    "extract_tables": False,
-    "extract_statistics": False,
-    "extract_model_parameters": False,
-    "citation_format": "inline",
+    "include_cross_references": True,
+    "extract_tables": True,
+    "extract_statistics": True,
+    "extract_model_parameters": True,
+    "citation_format": "detailed",
     "include_page_numbers": True,
-    "include_section_references": False,
-    "response_detail_level": "standard",
+    "include_section_references": True,
+    "response_detail_level": "comprehensive",
 }
 
 DEFAULT_POPIA_CONFIG = {

@@ -4,6 +4,7 @@ Modes: research, meta-skill, full-document, standard RAG.
 Pipeline: pre-retrieval skills -> vector search -> post-retrieval skills -> Gemini generation.
 """
 
+import asyncio
 import os
 import re
 import time
@@ -322,6 +323,116 @@ def _generate_report_html(answer: str, doc_names: list[str], report_context: dic
 </html>"""
 
 
+def _build_context_from_chunks(chunks: list[dict]) -> tuple[str, list[dict]]:
+    """Build context text + sources list from a set of retrieved chunks (per-topic helper)."""
+    sources: list[dict] = []
+    if not chunks:
+        return ("No relevant content was found in the uploaded documents for this query.", sources)
+
+    parts = []
+    for chunk in chunks:
+        relevance = chunk.get("final_score") or chunk.get("rerank_score") or chunk.get("similarity", 0)
+        sources.append({
+            "documentName": chunk["document_name"],
+            "chunkIndex": chunk["chunk_index"],
+            "similarity": relevance,
+            "preview": chunk["content"][:200] + ("..." if len(chunk["content"]) > 200 else ""),
+        })
+        is_parent = " [Parent Context]" if chunk.get("is_parent") else ""
+        parts.append(f"[Source: {chunk['document_name']}, Chunk {chunk['chunk_index'] + 1}{is_parent}, Relevance: {relevance * 100:.1f}%]\n{chunk['content']}")
+    return ("\n\n---\n\n".join(parts), sources)
+
+
+async def _retrieve_chunks_for_query(
+    query: str,
+    document_ids: list[str],
+    supabase,
+    retrieval_config: dict,
+    rag_config: dict,
+    api_key: str,
+) -> list[dict]:
+    """Run the standard retrieval pipeline for a single query (per-topic helper)."""
+    from services.rag_skills import (
+        keyword_search, fusion_rrf, fusion_weighted, expand_to_parent_chunks,
+        corrective_rag, self_rag, rerank_chunks,
+    )
+
+    top_k = rag_config["top_k"]
+    threshold = rag_config["similarity_threshold"]
+
+    async def perform_retrieval(q: str) -> list[dict]:
+        q_embed = await generate_query_embedding(q, api_key)
+        resp = supabase.rpc("match_document_chunks", {
+            "query_embedding": f"[{','.join(str(v) for v in q_embed)}]",
+            "match_threshold": threshold,
+            "match_count": top_k * 2 if retrieval_config.get("enable_fusion") else top_k,
+            "filter_document_ids": document_ids,
+        }).execute()
+        return [
+            {
+                "id": c.get("id", ""),
+                "document_id": c["document_id"],
+                "document_name": c["document_name"],
+                "chunk_index": c["chunk_index"],
+                "content": c["content"],
+                "similarity": c["similarity"],
+            }
+            for c in (resp.data or [])
+        ]
+
+    query_embedding = await generate_query_embedding(query, api_key)
+    retrieval_top_k = top_k * 2 if retrieval_config.get("enable_fusion") else top_k
+    search_resp = supabase.rpc("match_document_chunks", {
+        "query_embedding": f"[{','.join(str(v) for v in query_embedding)}]",
+        "match_threshold": threshold,
+        "match_count": retrieval_top_k,
+        "filter_document_ids": document_ids,
+    }).execute()
+
+    chunks = [
+        {
+            "id": c.get("id", ""),
+            "document_id": c["document_id"],
+            "document_name": c["document_name"],
+            "chunk_index": c["chunk_index"],
+            "content": c["content"],
+            "similarity": c["similarity"],
+        }
+        for c in (search_resp.data or [])
+    ]
+
+    if retrieval_config.get("enable_fusion") and chunks:
+        kw_results = keyword_search(query, chunks, top_k)
+        if retrieval_config.get("fusion_strategy") == "rrf":
+            chunks = fusion_rrf(chunks, kw_results)
+        else:
+            chunks = fusion_weighted(chunks, kw_results, retrieval_config.get("fusion_weights", {"semantic": 0.7, "keyword": 0.3}))
+
+    if retrieval_config.get("enable_hierarchical") and retrieval_config.get("expand_to_parent") and chunks:
+        chunks = await expand_to_parent_chunks(chunks, retrieval_config.get("max_hierarchy_depth", 1), supabase)
+
+    if retrieval_config.get("enable_crag") and chunks:
+        crag_result = await corrective_rag(
+            query, chunks, retrieval_config.get("crag_relevance_threshold", 0.4),
+            api_key, perform_retrieval,
+        )
+        if crag_result["corrected"]:
+            chunks = crag_result["chunks"]
+
+    if retrieval_config.get("enable_self_rag") and chunks:
+        self_rag_result = await self_rag(
+            query, chunks, retrieval_config.get("self_rag_threshold", 0.6),
+            retrieval_config.get("max_self_rag_iterations", 2), api_key, perform_retrieval,
+        )
+        if self_rag_result["refined"]:
+            chunks = self_rag_result["chunks"]
+
+    if retrieval_config.get("enable_reranking") and retrieval_config.get("reranker_model") != "none" and chunks:
+        chunks = await rerank_chunks(query, chunks, retrieval_config.get("rerank_top_n", 10), api_key)
+
+    return chunks[:top_k]
+
+
 @router.post("/ask-question")
 async def ask_question(request: Request):
     try:
@@ -366,6 +477,18 @@ async def ask_question(request: Request):
         retrieval_config = {**DEFAULT_RETRIEVAL_CONFIG, **(request_retrieval_config or {})}
         output_format = {**DEFAULT_OUTPUT_FORMAT, **(request_output_format or {})}
         popia = {**DEFAULT_POPIA_CONFIG, **(popia_config_raw or {})}
+
+        # Force audit-grade config when the skill name signals IFRS / audit workloads
+        if skill_name and ("ifrs" in skill_name.lower() or "audit" in skill_name.lower()):
+            output_format["output_style"] = "audit"
+            output_format["response_detail_level"] = "comprehensive"
+            output_format["extract_tables"] = True
+            output_format["extract_statistics"] = True
+            output_format["extract_model_parameters"] = True
+            output_format["citation_format"] = "detailed"
+            retrieval_config["enable_reranking"] = True
+            retrieval_config["reranker_model"] = "llm-rerank"
+            rag_config["top_k"] = max(rag_config["top_k"], 25)
 
         compliance_info = {
             "piiDetected": False,
@@ -420,7 +543,7 @@ IMPORTANT GUIDELINES:
             else:
                 research_prompt += f"\n\n## USER QUESTION:\n{question}"
 
-            answer = await call_llm(research_prompt, llm, temperature=0.5, max_output_tokens=8192)
+            answer = await call_llm(research_prompt, llm, temperature=0.5, max_output_tokens=32768)
             processing_ms = int((time.time() - start_time) * 1000)
 
             return {
@@ -791,32 +914,19 @@ You have access to retrieved sections from organisation-specific documents inclu
    - If you cannot answer from the retrieved sections, say so clearly"""
 
         final_prompt = ""
+        per_topic_answer: str | None = None
 
         if questions_template and isinstance(questions_template, list) and len(questions_template) > 0:
-            final_prompt = default_prompt
-            if custom_prompt:
-                final_prompt += f"\n\n## EXPERT KNOWLEDGE / ASSESSMENT FRAMEWORK:\n{custom_prompt}\n\n"
-            final_prompt += docs_instruction
-            final_prompt += f"## USER QUESTION/INSTRUCTION:\n{question}\n\n## QUESTIONS TO ANSWER:\n\n"
+            # Per-topic loop: separate retrieval + LLM call per topic, in parallel batches.
+            # Each topic gets its full output-token budget and topic-specific retrieval.
+            skills_applied.append("Per-Topic Assessment")
+            sources = []
+            chunks = []
 
-            for idx, q in enumerate(questions_template):
-                q_text = q if isinstance(q, str) else (q.get("question") or q.get("text") or json.dumps(q))
-                q_id = str(idx + 1) if isinstance(q, str) else (q.get("question_id") or str(idx + 1))
-                final_prompt += f"Question {idx + 1} [{q_id}]: {q_text}\n\n"
-
-            final_prompt += f"""\n{output_instructions}\n\n## RESPONSE INSTRUCTIONS:
-For EACH question above:
-1. Search the retrieved sections for relevant information
-2. Provide a COMPLETE, DETAILED response using ONLY information from the retrieved sections
-3. Structure your answer according to the OUTPUT FORMAT specified above
-4. CITE specific sources using the CITATION FORMAT specified above
-5. If information is not in the retrieved sections, state so clearly
-
-**CRITICAL:** Answer ALL questions. Follow the output format. Cite your sources. Never fabricate information."""
-
-            # Structured JSON export block — powers the in-app Word/PDF download.
-            # Plain (non-f) string so the literal JSON braces don't need escaping.
-            final_prompt += """
+            # Structured JSON export instructions — appended only to the LAST topic's prompt
+            # so the combined output ends with exactly one assessment-json block (cb40c39's
+            # Word/PDF export still works).
+            structured_export_instructions = """
 
 ## STRUCTURED EXPORT (REQUIRED)
 
@@ -884,6 +994,76 @@ Rules for the JSON:
 - Reproduce every row of source tables in the "rows" arrays — do not summarise tables into prose.
 - Produce a topic block for EVERY question in the questionsTemplate, even those for which evidence was not found."""
 
+            async def _process_topic(idx: int, q):
+                q_text = q if isinstance(q, str) else (q.get("question") or q.get("text") or json.dumps(q))
+                q_id = str(idx + 1) if isinstance(q, str) else (q.get("question_id") or str(idx + 1))
+                print(f"[Topic {idx + 1}/{len(questions_template)}] {q_text[:80]}...")
+
+                topic_query = f"{question}\n\nTopic: {q_text}"
+                topic_chunks = await _retrieve_chunks_for_query(
+                    topic_query, document_ids, supabase, retrieval_config, rag_config, api_key,
+                )
+                topic_context, topic_sources = _build_context_from_chunks(topic_chunks)
+
+                topic_prompt = default_prompt
+                if custom_prompt:
+                    topic_prompt += f"\n\n## EXPERT KNOWLEDGE / ASSESSMENT FRAMEWORK:\n{custom_prompt}\n\n"
+                topic_prompt += f"""\n\n## RETRIEVED DOCUMENT CONTEXT (for this topic):
+You have been provided with {len(topic_chunks)} relevant section(s) from the source documents for this specific topic.
+
+**RETRIEVED SECTIONS:**
+
+{topic_context}
+
+**CRITICAL REQUIREMENTS:**
+1. Base your response ONLY on the retrieved sections above
+2. CITE specific sources using the format: [Source: Document Name, Chunk X]
+3. Quote exact text from the retrieved sections where relevant
+4. If the retrieved sections don't contain enough information, state: "Evidence not found after full corpus scan"
+5. DO NOT use general knowledge
+6. DO NOT hallucinate or fabricate information not present in the sections
+7. When the source document contains a numerical value (percentage, monetary amount, ratio, AUC, p-value, sample size, coefficient), quote it VERBATIM with the source citation. Do not paraphrase or round.
+8. When the source document contains a table relevant to this topic, REPRODUCE THE TABLE in your output. Do not summarise tables into prose.
+9. Distinguish "Evidence not found after full corpus scan" from "Non-Compliant". The former applies when the corpus does not address the topic; the latter when the corpus addresses it and falls short.\n\n"""
+                topic_prompt += f"{output_instructions}\n\n"
+                topic_prompt += f"## USER QUESTION (OVERARCHING):\n{question}\n\n"
+                topic_prompt += f"## TOPIC TO ASSESS (this call):\nTopic {idx + 1} [{q_id}]: {q_text}\n\n"
+                topic_prompt += """INSTRUCTIONS:
+- Produce ONE assessment block for this single topic
+- Follow the output format above
+- Quote numbers and tables verbatim
+- Cite sources with chunk references
+- If evidence is absent after full corpus scan, state so explicitly"""
+
+                # Append the structured JSON export instructions to the LAST topic only,
+                # so the combined output ends with exactly one assessment-json block.
+                if idx == len(questions_template) - 1:
+                    topic_prompt += structured_export_instructions
+
+                topic_answer = await call_llm(topic_prompt, llm, temperature=0.5, max_output_tokens=32768)
+
+                tables_observed = sum(
+                    1 for c in topic_chunks
+                    if re.search(r"\|.*\|", c["content"]) or re.search(r"\bTable\b", c["content"], re.IGNORECASE)
+                )
+                footer = f"\n\n_Source coverage: {len(topic_chunks)} chunks retrieved; approx tables observed in retrieved chunks: {tables_observed}._\n"
+                return idx, (topic_answer or "*No response generated for this topic.*") + footer, topic_sources, topic_chunks
+
+            BATCH_SIZE = 4
+            topic_answers: list[str] = [""] * len(questions_template)
+            for batch_start in range(0, len(questions_template), BATCH_SIZE):
+                batch_end = min(batch_start + BATCH_SIZE, len(questions_template))
+                batch_results = await asyncio.gather(*[
+                    _process_topic(i, questions_template[i]) for i in range(batch_start, batch_end)
+                ])
+                for i, topic_answer, topic_sources, topic_chunks in batch_results:
+                    topic_answers[i] = topic_answer
+                    sources.extend(topic_sources)
+                    chunks.extend(topic_chunks)
+                print(f"Batch {batch_start}-{batch_end - 1} complete")
+
+            per_topic_answer = "\n\n---\n\n".join(topic_answers)
+
         else:
             final_prompt = default_prompt
             if custom_prompt:
@@ -918,8 +1098,12 @@ Rules for the JSON:
 - CITE your sources using the CITATION FORMAT specified above
 - If information is not in the retrieved sections, state so clearly"""
 
-        if generate_report:
-            final_prompt += """\n\n## REPORT GENERATION:
+        if per_topic_answer is not None:
+            # Per-topic loop already produced the answer; skip the single-call path.
+            answer = per_topic_answer
+        else:
+            if generate_report:
+                final_prompt += """\n\n## REPORT GENERATION:
 Generate a structured report with:
 - Executive Summary with critical findings
 - Risk Assessment with indicators
@@ -927,13 +1111,13 @@ Generate a structured report with:
 - Recommendations
 - Use professional styling"""
 
-        if reasoning_addition:
-            final_prompt += f"\n\n## REASONING FRAMEWORK:{reasoning_addition}"
+            if reasoning_addition:
+                final_prompt += f"\n\n## REASONING FRAMEWORK:{reasoning_addition}"
 
-        print(f"=== SENDING TO {llm['model']} ===")
-        print(f"Prompt length: {len(final_prompt)} characters")
+            print(f"=== SENDING TO {llm['model']} ===")
+            print(f"Prompt length: {len(final_prompt)} characters")
 
-        answer = await call_llm(final_prompt, llm, temperature=0.3, max_output_tokens=8192)
+            answer = await call_llm(final_prompt, llm, temperature=0.5, max_output_tokens=32768)
 
         if not answer:
             answer = "No answer generated"

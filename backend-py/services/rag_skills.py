@@ -15,21 +15,21 @@ from services.gemini_client import generate_content, extract_json
 
 DEFAULT_RAG_CONFIG = {
     "enable_hyde": False,
-    "enable_query_rewrite": False,
-    "enable_decomposition": False,
+    "enable_query_rewrite": True,
+    "enable_decomposition": True,
     "enable_verification": False,
     "enable_confidence": False,
     "enable_reasoning": False,
-    "top_k": 15,
+    "top_k": 25,
     "similarity_threshold": 0.3,
 }
 
 DEFAULT_RETRIEVAL_CONFIG = {
     "enable_full_document_mode": False,
     "full_document_max_chars": 100000,
-    "enable_reranking": False,
-    "reranker_model": "none",
-    "rerank_top_n": 10,
+    "enable_reranking": True,
+    "reranker_model": "llm-rerank",
+    "rerank_top_n": 15,
     "enable_fusion": False,
     "fusion_strategy": "rrf",
     "fusion_weights": {"semantic": 0.7, "keyword": 0.3},
