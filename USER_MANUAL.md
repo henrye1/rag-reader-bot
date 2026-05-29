@@ -21,20 +21,27 @@ A RAG-powered document analysis system with advanced vector search capabilities.
 
 ### Prerequisites
 
-- Node.js 18+ installed
+- Node.js 18+ and npm (for the frontend)
+- Python 3.11+ (for the backend)
 - Supabase project with pgvector extension enabled
-- Google Gemini API key configured
+- Google Gemini API key
 
 ### Running the Application
 
-1. **Install dependencies:**
+1. **Start the Python backend:**
    ```bash
-   npm install
+   cd backend-py
+   python -m venv .venv
+   .venv/Scripts/activate       # Windows (.venv/bin/activate on Linux/Mac)
+   pip install -r requirements.txt
+   python main.py               # Runs on port 3001
    ```
 
-2. **Start the development server:**
+2. **Start the frontend (in a separate terminal):**
    ```bash
-   npm run dev
+   cd frontend
+   npm install
+   npm run dev                  # Runs on port 8080
    ```
 
 3. **Open your browser:**
@@ -42,7 +49,7 @@ A RAG-powered document analysis system with advanced vector search capabilities.
 
 ### Environment Setup
 
-Ensure your Supabase Edge Functions have the `GOOGLE_API_KEY` environment variable set.
+Configure `backend-py/.env` with your `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `GOOGLE_API_KEY`. Optionally add `ANTHROPIC_API_KEY` to enable the Claude model options.
 
 ---
 
@@ -70,6 +77,21 @@ Choose how the AI should analyze your documents:
 - Type questions in the chat interface
 - Optionally upload a question template for batch processing
 - View source citations with each answer
+
+#### Choosing a model
+
+Use the **model dropdown** in the chat header (next to the expert selector) to choose which AI generates the answer:
+
+- **Gemini 2.5 Pro** (default) — always available
+- **Claude Opus 4.7** — most capable
+- **Claude Sonnet 4.6** — balanced speed/quality
+- **Claude Haiku 4.5** — fastest / lowest cost
+
+The choice is remembered per browser and applies to your next question. Claude options require the server's `ANTHROPIC_API_KEY` to be configured; if it isn't, picking a Claude model returns a clear error and you can switch back to Gemini.
+
+#### Downloading an assessment (Word / PDF)
+
+When you run a structured assessment (with a question template), the reply includes **Download as Word** and **Download as PDF** buttons. Click either to generate a formatted working-paper document in your browser — no server round-trip. The buttons only appear on assessment responses; ordinary chat replies don't show them.
 
 ---
 
