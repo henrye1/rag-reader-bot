@@ -457,7 +457,7 @@ const Index = () => {
             retrievalConfig={retrievalConfig}
             outputFormat={outputFormat}
             popiaConfig={popiaConfig}
-            onReportGenerated={() => {}}
+            onAnswerForDocument={handleAnswerForDocument}
           />
         </div>
       )}
