@@ -17,8 +17,7 @@ import type { UploadedDocument } from "@/pages/Index";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { ChunkSources } from "@/components/ChunkSources";
 import { RagMetadataBadges } from "@/components/RagMetadataBadges";
-import { DownloadAssessment } from "@/components/DownloadAssessment";
-import { extractAssessmentJson, stripAssessmentJson } from "@/lib/extractAssessmentJson";
+import { stripAssessmentJson } from "@/lib/extractAssessmentJson";
 import { ChatExpertSelector, RESEARCH_ASSISTANT } from "@/components/ChatExpertSelector";
 import type { Source, Skill } from "@/types/database";
 import type { RagConfig, RetrievalConfig, VerificationResult, ConfidenceResult } from "@/types/rag-types";
@@ -73,7 +72,6 @@ interface ComplianceInfo {
 
 interface ChatInterfaceProps {
   documents: UploadedDocument[];
-  onReportGenerated: (html: string, data: Record<string, unknown>, isFollowUp?: boolean) => void;
   customPrompt: string | null;
   questionsTemplate: Record<string, unknown>[] | null;
   resetTrigger?: number;
@@ -87,9 +85,11 @@ interface ChatInterfaceProps {
   onSkillChange?: (skill: Skill | null) => void;
   /** Key to trigger skills refresh in ChatExpertSelector */
   skillsRefreshKey?: number;
+  documentSections?: { id: string; title: string }[];
+  onAnswerForDocument?: (question: string, answer: string, routing: import("@/lib/appendToSection").SectionRouting | null) => void;
 }
 
-export const ChatInterface = ({ documents, onReportGenerated, customPrompt, questionsTemplate, resetTrigger, ragConfig, retrievalConfig, outputFormat, popiaConfig, onClearChat, onComplianceUpdate, selectedSkill, onSkillChange, skillsRefreshKey }: ChatInterfaceProps) => {
+export const ChatInterface = ({ documents, customPrompt, questionsTemplate, resetTrigger, ragConfig, retrievalConfig, outputFormat, popiaConfig, onClearChat, onComplianceUpdate, selectedSkill, onSkillChange, skillsRefreshKey, documentSections, onAnswerForDocument }: ChatInterfaceProps) => {
   const [messages, setMessages] = useLocalStorage<Message[]>("chatMessages", []);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -152,7 +152,7 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
               documentIds: documentIds,
               customPrompt: customPrompt,
               questionsTemplate: questionsTemplate,
-              generateReport: true,
+              documentSections: documentSections ?? [],
               ragConfig: ragConfig,
               retrievalConfig: retrievalConfig,
               outputFormat: outputFormat,
@@ -179,8 +179,8 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
 
           setMessages((prev) => [...prev, assistantMessage]);
 
-          if (data.reportHtml) {
-            onReportGenerated(data.reportHtml, data.reportData);
+          if (onAnswerForDocument) {
+            onAnswerForDocument("Please process all questions from the uploaded template systematically.", data.answer, data.sectionRouting ?? null);
           }
 
           toast({
@@ -304,7 +304,7 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
           documentIds: allDocumentIds,
           customPrompt: effectivePrompt,
           questionsTemplate: questionsTemplate,
-          generateReport: true,
+          documentSections: documentSections ?? [],
           ragConfig: ragConfig,
           retrievalConfig: retrievalConfig,
           outputFormat: outputFormat,
@@ -339,13 +339,8 @@ export const ChatInterface = ({ documents, onReportGenerated, customPrompt, ques
 
       setMessages((prev) => [...prev, assistantMessage]);
 
-      // Handle report generation (including research mode responses)
-      const isFollowUp = messages.length > 0;
-      if (data.reportHtml) {
-        onReportGenerated(data.reportHtml, { ...data.reportData, researchMode: data.researchMode }, isFollowUp);
-      } else if (isResearchMode && data.answer) {
-        // For research mode without reportHtml, pass the answer for cumulative report
-        onReportGenerated(null as unknown as string, { answer: data.answer, researchMode: true }, isFollowUp);
+      if (onAnswerForDocument) {
+        onAnswerForDocument(input, data.answer, data.sectionRouting ?? null);
       }
     } catch (error) {
       console.error("Question error:", error);
@@ -481,13 +476,6 @@ ${sources.map((s, i) => `${i + 1}. ${s.documentName} - Chunk ${s.chunkIndex} (Si
                       <p className="text-sm leading-relaxed whitespace-pre-wrap">
                         {message.role === "assistant" ? stripAssessmentJson(message.content) : message.content}
                       </p>
-                      {/* Word/PDF download buttons — only render when the response carries assessment JSON */}
-                      {message.role === "assistant" && (
-                        <DownloadAssessment
-                          assessment={extractAssessmentJson(message.content)}
-                          className="mt-3"
-                        />
-                      )}
                       {/* Copy/Export buttons for assistant messages */}
                       {message.role === "assistant" && (
                         <div className="flex items-center gap-1 mt-3 pt-2 border-t border-border/50">
