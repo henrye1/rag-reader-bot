@@ -16,6 +16,7 @@ from routes.parse_prompt_document import router as parse_prompt_document_router
 from routes.documents import router as documents_router
 from routes.skills import router as skills_router
 from routes.configs import router as configs_router
+from routes.assessment_documents import router as assessment_documents_router
 
 app = FastAPI()
 
@@ -61,6 +62,7 @@ app.include_router(parse_prompt_document_router, prefix="/api")
 app.include_router(documents_router, prefix="/api")
 app.include_router(skills_router, prefix="/api")
 app.include_router(configs_router, prefix="/api")
+app.include_router(assessment_documents_router, prefix="/api")
 
 
 @app.get("/api/health")
