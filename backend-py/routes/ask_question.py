@@ -1123,27 +1123,49 @@ Generate a structured report with:
             answer = "No answer generated"
 
         # =====================================================
-        # POST-RETRIEVAL SKILLS
+        # POST-ANSWER SKILLS + REPORT CONTEXT (run concurrently)
+        # Verification, confidence, and report-context all depend only on the
+        # finished `answer` and are independent of each other, so they run in
+        # parallel rather than as sequential LLM round-trips. Each task keeps
+        # its original guard condition.
         # =====================================================
         verification = None
-        if rag_config.get("enable_verification") and answer != "No answer generated":
-            verification = await verify_answer(processed_question, answer, document_names, api_key)
-            skills_applied.append("Verification")
-
         confidence = None
+        report_context = None
+
+        tasks: dict[str, "asyncio.Future"] = {}
+        if rag_config.get("enable_verification") and answer != "No answer generated":
+            tasks["verification"] = verify_answer(processed_question, answer, document_names, api_key)
         if rag_config.get("enable_confidence") and answer != "No answer generated":
-            confidence = await assess_confidence(processed_question, answer, document_names, len(sources), api_key)
-            skills_applied.append("Confidence")
+            tasks["confidence"] = assess_confidence(processed_question, answer, document_names, len(sources), api_key)
+        if generate_report and answer:
+            tasks["report_context"] = _generate_report_context(
+                answer, question, [d["name"] for d in documents], custom_prompt, llm
+            )
+
+        if tasks:
+            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+            for key, res in zip(tasks.keys(), results):
+                if isinstance(res, Exception):
+                    print(f"Post-answer task '{key}' failed: {res}")
+                    continue
+                if key == "verification":
+                    verification = res
+                    skills_applied.append("Verification")
+                elif key == "confidence":
+                    confidence = res
+                    skills_applied.append("Confidence")
+                elif key == "report_context":
+                    report_context = res
 
         processing_ms = int((time.time() - start_time) * 1000)
 
-        # Generate report if requested
+        # Build report HTML from the (already-generated) report context
         report_html = None
         report_data = None
 
-        if generate_report and answer:
+        if generate_report and answer and report_context is not None:
             doc_names = [d["name"] for d in documents]
-            report_context = await _generate_report_context(answer, question, doc_names, custom_prompt, llm)
             report_html = _generate_report_html(answer, doc_names, report_context, sources)
             report_data = {"answer": answer, "documents": doc_names, "reportContext": report_context, "sources": sources}
 
