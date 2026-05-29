@@ -23,15 +23,23 @@ export function appendAnswerToSections(
   answer: string,
 ): Section[] {
   const block = answerBlock(question, answer);
+  const createNew = (): Section => ({
+    id: uid(), title: routing.sectionTitle || question.slice(0, 60),
+    kind: "generic", bodyJson: { type: "doc", content: block }, origin: "followup",
+  });
+
   if (routing.isNew || !routing.targetSectionId) {
-    const created: Section = {
-      id: uid(), title: routing.sectionTitle || question.slice(0, 60),
-      kind: "generic", bodyJson: { type: "doc", content: block }, origin: "followup",
-    };
-    return [...sections, created];
+    return [...sections, createNew()];
   }
-  return sections.map((s) =>
-    s.id === routing.targetSectionId
-      ? { ...s, bodyJson: { type: "doc", content: [...s.bodyJson.content, ...block] } }
-      : s);
+
+  // Append to the routed section. If the id no longer exists (e.g. sections were
+  // re-seeded while routing was in flight), fall through to a new section so the
+  // answer is never silently dropped.
+  let matched = false;
+  const updated = sections.map((s) => {
+    if (s.id !== routing.targetSectionId) return s;
+    matched = true;
+    return { ...s, bodyJson: { type: "doc", content: [...(s.bodyJson.content ?? []), ...block] } };
+  });
+  return matched ? updated : [...updated, createNew()];
 }

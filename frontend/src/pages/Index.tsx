@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { FileUpload } from "@/components/FileUpload";
 import { ChatInterface } from "@/components/ChatInterface";
 import { DocumentList } from "@/components/DocumentList";
@@ -366,35 +366,54 @@ const Index = () => {
     }
   };
 
+  // Keep a ref to the latest document so the async answer handler reads current
+  // state rather than a stale closure value across rapid successive answers.
+  const docRef = useRef(doc);
+  useEffect(() => { docRef.current = doc; }, [doc]);
+  // Guards against creating duplicate documents if two answers arrive before the
+  // first createDocument POST returns (both would otherwise see doc === null).
+  const creatingRef = useRef(false);
+
   // Answer-for-document handler: seeds or appends to the assessment document
   const handleAnswerForDocument = async (question: string, answer: string, routing: SectionRouting | null) => {
+    const currentDoc = docRef.current;
     const parsedAssessment = extractAssessmentJson(answer);
     if (parsedAssessment) {
       const seeded = assessmentToSections(parsedAssessment);
-      if (doc) {
-        const kept = doc.sections.filter((s) => s.origin !== "assessment");
-        setDoc({ ...doc, sections: [...seeded, ...kept], sourceAssessment: parsedAssessment, title: parsedAssessment.title || doc.title });
-      } else {
-        await createDocument({
-          title: parsedAssessment.title || "Assessment",
-          entity: parsedAssessment.entity || "",
-          reportingDate: parsedAssessment.reportingDate || "",
-          documentIds: readyDocuments.map((d) => d.documentId),
-          sections: seeded,
-          sourceAssessment: parsedAssessment,
-        });
+      if (currentDoc) {
+        const kept = currentDoc.sections.filter((s) => s.origin !== "assessment");
+        setDoc({ ...currentDoc, sections: [...seeded, ...kept], sourceAssessment: parsedAssessment, title: parsedAssessment.title || currentDoc.title });
+      } else if (!creatingRef.current) {
+        creatingRef.current = true;
+        try {
+          await createDocument({
+            title: parsedAssessment.title || "Assessment",
+            entity: parsedAssessment.entity || "",
+            reportingDate: parsedAssessment.reportingDate || "",
+            documentIds: readyDocuments.map((d) => d.documentId),
+            sections: seeded,
+            sourceAssessment: parsedAssessment,
+          });
+        } finally {
+          creatingRef.current = false;
+        }
       }
       return;
     }
     const safeRouting: SectionRouting = routing ?? { targetSectionId: null, sectionTitle: question.slice(0, 60), isNew: true };
-    if (doc) {
-      setDoc({ ...doc, sections: appendAnswerToSections(doc.sections, safeRouting, question, answer) });
-    } else {
-      await createDocument({
-        title: "Working notes",
-        documentIds: readyDocuments.map((d) => d.documentId),
-        sections: appendAnswerToSections([], { ...safeRouting, isNew: true }, question, answer),
-      });
+    if (currentDoc) {
+      setDoc({ ...currentDoc, sections: appendAnswerToSections(currentDoc.sections, safeRouting, question, answer) });
+    } else if (!creatingRef.current) {
+      creatingRef.current = true;
+      try {
+        await createDocument({
+          title: "Working notes",
+          documentIds: readyDocuments.map((d) => d.documentId),
+          sections: appendAnswerToSections([], { ...safeRouting, isNew: true }, question, answer),
+        });
+      } finally {
+        creatingRef.current = false;
+      }
     }
   };
 

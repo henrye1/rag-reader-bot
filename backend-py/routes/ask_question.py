@@ -178,8 +178,10 @@ Respond with ONLY JSON:
                 "isNew": bool(parsed.get("isNew")),
             }
     except Exception as e:
-        print(f"[WARN] Section routing failed, falling back to sections[0]: {e}")
-    return {"targetSectionId": sections[0]["id"], "sectionTitle": sections[0]["title"], "isNew": False}
+        print(f"[WARN] Section routing failed, defaulting to a new section: {e}")
+    # On any LLM/parse failure, prefer a new section over silently polluting an
+    # existing one (e.g. the always-first "Document Context" section).
+    return {"targetSectionId": None, "sectionTitle": question[:60], "isNew": True}
 
 
 def _build_context_from_chunks(chunks: list[dict]) -> tuple[str, list[dict]]:

@@ -180,7 +180,7 @@ export const ChatInterface = ({ documents, customPrompt, questionsTemplate, rese
           setMessages((prev) => [...prev, assistantMessage]);
 
           if (onAnswerForDocument) {
-            onAnswerForDocument("Please process all questions from the uploaded template systematically.", data.answer, data.sectionRouting ?? null);
+            onAnswerForDocument("Assessment questions", data.answer, data.sectionRouting ?? null);
           }
 
           toast({

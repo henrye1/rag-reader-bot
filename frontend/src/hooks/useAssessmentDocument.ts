@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { apiFetch, apiCall } from "@/lib/api";
 import type { AssessmentDocument, Section } from "@/lib/documentTypes";
 
@@ -23,7 +24,7 @@ export function useAssessmentDocument() {
     setSaving(true);
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
-      await apiFetch(`assessment-documents/${next.id}`, {
+      const { error } = await apiFetch(`assessment-documents/${next.id}`, {
         method: "PUT",
         body: {
           title: next.title,
@@ -34,6 +35,9 @@ export function useAssessmentDocument() {
           sourceAssessment: next.sourceAssessment,
         } as Record<string, unknown>,
       });
+      if (error) {
+        toast.error("Could not save document changes", { description: error.message });
+      }
       setSaving(false);
     }, 800);
   }, []);

@@ -37,4 +37,6 @@ export interface AssessmentDocument {
   updatedAt?: string;
 }
 
-export const emptyDoc = (): ProseMirrorDoc => ({ type: "doc", content: [] });
+// TipTap's schema requires `doc` to contain at least one block node, so an
+// "empty" body is a single empty paragraph rather than an empty array.
+export const emptyDoc = (): ProseMirrorDoc => ({ type: "doc", content: [{ type: "paragraph" }] });
