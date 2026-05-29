@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { FileUpload } from "@/components/FileUpload";
 import { ChatInterface } from "@/components/ChatInterface";
 import { DocumentList } from "@/components/DocumentList";
-import { ReportViewer } from "@/components/ReportViewer";
 import { WorkflowSteps } from "@/components/WorkflowSteps";
 import { PromptUploader } from "@/components/PromptUploader";
 import { QuestionsUploader } from "@/components/QuestionsUploader";
@@ -16,7 +15,7 @@ import { ReprocessDialog } from "@/components/ReprocessDialog";
 import { OutputFormatPanel, DEFAULT_OUTPUT_FORMAT, type OutputFormatConfig } from "@/components/OutputFormatPanel";
 import { POPIACompliancePanel, DEFAULT_POPIA_CONFIG, type POPIAConfig } from "@/components/POPIACompliancePanel";
 import { DocumentComparison } from "@/components/DocumentComparison";
-import { FileText, Trash2 } from "lucide-react";
+import { FileText, Trash2, Settings } from "lucide-react";
 import { HelpDialog } from "@/components/HelpDialog";
 import { Button } from "@/components/ui/button";
 import { useLocalStorage } from "@/hooks/use-local-storage";
@@ -26,6 +25,13 @@ import { apiFetch, apiCall } from "@/lib/api";
 import type { Skill } from "@/types/database";
 import type { RagConfig, IngestionConfig, RetrievalConfig } from "@/types/rag-types";
 import { DEFAULT_RAG_CONFIG, DEFAULT_INGESTION_CONFIG, DEFAULT_RETRIEVAL_CONFIG } from "@/types/rag-types";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { AssessmentDocumentPanel } from "@/components/AssessmentDocumentPanel";
+import { useAssessmentDocument } from "@/hooks/useAssessmentDocument";
+import { assessmentToSections } from "@/lib/assessmentToDocument";
+import { appendAnswerToSections, type SectionRouting } from "@/lib/appendToSection";
+import { extractAssessmentJson } from "@/lib/extractAssessmentJson";
 
 export interface UploadedDocument {
   id: string;              // Local ID for UI tracking
@@ -44,13 +50,14 @@ const Index = () => {
   // Store document metadata in localStorage
   const [documents, setDocuments] = useLocalStorage<UploadedDocument[]>("documents", []);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [generatedReport, setGeneratedReport] = useLocalStorage<string | null>("generatedReport", null);
-  const [reportData, setReportData] = useLocalStorage<Record<string, unknown> | null>("reportData", null);
   const [customPrompt, setCustomPrompt] = useState<string | null>(null);
   const [promptFileName, setPromptFileName] = useLocalStorage<string | null>("promptFileName", null);
   const [questionsTemplate, setQuestionsTemplate] = useState<Record<string, unknown>[] | null>(null);
   const [questionsFileName, setQuestionsFileName] = useLocalStorage<string | null>("questionsFileName", null);
   const [resetTrigger, setResetTrigger] = useState(0);
+
+  // Assessment document state
+  const { doc, setDoc, createDocument, saving } = useAssessmentDocument();
 
   // Skills state
   const [selectedSkill, setSelectedSkill] = useLocalStorage<Skill | null>("selectedSkill", null);
@@ -248,8 +255,6 @@ const Index = () => {
     setPromptFileName(null);
     setQuestionsTemplate(null);
     setQuestionsFileName(null);
-    setGeneratedReport(null);
-    setReportData(null);
     setSelectedSkill(null);
     setShowCustomPromptUpload(false);
     setRagConfig(DEFAULT_RAG_CONFIG);
@@ -261,94 +266,6 @@ const Index = () => {
       title: "Reset Complete",
       description: "All data has been cleared. You can start fresh!",
     });
-  };
-
-  const handleReportGenerated = (html: string, data: Record<string, unknown>, isFollowUp?: boolean) => {
-    if (isFollowUp && generatedReport) {
-      // Cumulative mode: append new content to existing report
-      const newAnswer = (data as { answer?: string }).answer || '';
-      const isResearchContent = (data as { researchMode?: boolean }).researchMode === true;
-      const timestamp = new Date().toLocaleTimeString();
-
-      let sectionToAdd: string;
-
-      if (isResearchContent) {
-        // Research content goes to dedicated "External Research & Validation" section
-        sectionToAdd = `
-        <div class="section research-section" style="margin-top: 30px; border-top: 3px dashed #9c27b0; padding-top: 20px; background: linear-gradient(135deg, #f3e5f5 0%, #fce4ec 100%); border-radius: 8px; padding: 20px;">
-          <h2 style="color: #9c27b0; display: flex; align-items: center; gap: 10px;">
-            <span style="font-size: 24px;">🔬</span>
-            EXTERNAL RESEARCH & VALIDATION (${timestamp})
-          </h2>
-          <p style="font-style: italic; color: #666; margin-bottom: 15px; padding: 10px; background: rgba(255,255,255,0.7); border-radius: 4px;">
-            The following external research and validation references the methodology and findings discussed in the document analysis above.
-            This information is sourced from general knowledge and academic literature - no confidential document data was used.
-          </p>
-          ${formatFollowUpContent(newAnswer)}
-        </div>
-      `;
-      } else {
-        // Regular follow-up section (RAG-based)
-        sectionToAdd = `
-        <div class="section follow-up-section" style="margin-top: 30px; border-top: 3px dashed #2196f3; padding-top: 20px;">
-          <h2 style="color: #2196f3;">FOLLOW-UP RESPONSE (${timestamp})</h2>
-          ${formatFollowUpContent(newAnswer)}
-        </div>
-      `;
-      }
-
-      // Insert the section before the closing </div></body>
-      const insertPoint = generatedReport.lastIndexOf('</div>\n</body>');
-      if (insertPoint !== -1) {
-        const updatedReport = generatedReport.slice(0, insertPoint) + sectionToAdd + generatedReport.slice(insertPoint);
-        setGeneratedReport(updatedReport);
-      } else {
-        // Fallback: just append
-        setGeneratedReport(generatedReport + sectionToAdd);
-      }
-
-      // Merge report data
-      setReportData(prev => ({
-        ...prev,
-        ...data,
-        followUpCount: ((prev as { followUpCount?: number })?.followUpCount || 0) + 1,
-        researchCount: isResearchContent
-          ? ((prev as { researchCount?: number })?.researchCount || 0) + 1
-          : (prev as { researchCount?: number })?.researchCount || 0,
-      }));
-    } else if (html) {
-      // Initial report: replace completely (only if we have HTML)
-      setGeneratedReport(html);
-      setReportData(data);
-    }
-    // If no html and not a follow-up, ignore (can't create initial report from research-only)
-  };
-
-  // Helper function to format follow-up content (similar to formatAnalysisContent in Edge Function)
-  const formatFollowUpContent = (answer: string): string => {
-    let html = answer;
-
-    // Strip citations for clean report output
-    html = html.replace(/\[Source:\s*[^\]]+\]/gi, '');
-    html = html.replace(/\[Chunk\s*\d+[^\]]*\]/gi, '');
-    html = html.replace(/\(Source:\s*[^)]+\)/gi, '');
-    html = html.replace(/\s{2,}/g, ' ');
-    html = html.replace(/\n\s*\n\s*\n/g, '\n\n');
-
-    // Format markdown to HTML
-    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-    html = html.replace(/^# (.+)$/gm, '<h2>$1</h2>');
-    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/^\s*[-*]\s+(.+)$/gm, '<li>$1</li>');
-    html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
-    html = html.replace(/\n\n/g, '</p><p>');
-    html = '<p>' + html + '</p>';
-    html = html.replace(/<p>\s*<\/p>/g, '');
-    html = html.replace(/<p>\s*<h/g, '<h');
-    html = html.replace(/<\/h([23])>\s*<\/p>/g, '</h$1>');
-
-    return html;
   };
 
   const handlePromptLoaded = (prompt: string, fileName: string) => {
@@ -438,6 +355,49 @@ const Index = () => {
     });
   };
 
+  // Compliance update handler (extracted so it can be shared by both ChatInterface instances)
+  const handleComplianceUpdate = (info: { piiDetected: boolean; riskLevel: 'none' | 'low' | 'medium' | 'high'; detectedTypes?: string[] } | null) => {
+    if (info) {
+      setLastPIIDetection({
+        hasPII: info.piiDetected,
+        riskLevel: info.riskLevel,
+        detectedTypes: info.detectedTypes || [],
+      });
+    }
+  };
+
+  // Answer-for-document handler: seeds or appends to the assessment document
+  const handleAnswerForDocument = async (question: string, answer: string, routing: SectionRouting | null) => {
+    const parsedAssessment = extractAssessmentJson(answer);
+    if (parsedAssessment) {
+      const seeded = assessmentToSections(parsedAssessment);
+      if (doc) {
+        const kept = doc.sections.filter((s) => s.origin !== "assessment");
+        setDoc({ ...doc, sections: [...seeded, ...kept], sourceAssessment: parsedAssessment, title: parsedAssessment.title || doc.title });
+      } else {
+        await createDocument({
+          title: parsedAssessment.title || "Assessment",
+          entity: parsedAssessment.entity || "",
+          reportingDate: parsedAssessment.reportingDate || "",
+          documentIds: readyDocuments.map((d) => d.documentId),
+          sections: seeded,
+          sourceAssessment: parsedAssessment,
+        });
+      }
+      return;
+    }
+    const safeRouting: SectionRouting = routing ?? { targetSectionId: null, sectionTitle: question.slice(0, 60), isNew: true };
+    if (doc) {
+      setDoc({ ...doc, sections: appendAnswerToSections(doc.sections, safeRouting, question, answer) });
+    } else {
+      await createDocument({
+        title: "Working notes",
+        documentIds: readyDocuments.map((d) => d.documentId),
+        sections: appendAnswerToSections([], { ...safeRouting, isNew: true }, question, answer),
+      });
+    }
+  };
+
   // Get ready documents for chat
   const readyDocuments = documents.filter(doc => doc.status === 'ready');
 
@@ -461,6 +421,104 @@ const Index = () => {
       completed: !!questionsFileName || false,
     },
   ];
+
+  // Config sidebar content — rendered inside the aside (no-doc mode) or the Sheet (doc mode)
+  const configSidebarContent = (
+    <div className="space-y-6">
+      {/* Ingestion Configuration (before upload) */}
+      <IngestionConfigPanel
+        config={ingestionConfig}
+        onConfigChange={setIngestionConfig}
+      />
+
+      {/* Step 1: Upload Documents */}
+      <FileUpload
+        onFileSelect={handleFileSelect}
+        selectedFiles={selectedFiles}
+        onUploadComplete={handleFileUpload}
+        onClearSelected={handleClearSelectedFiles}
+        onRemoveFile={handleRemoveFile}
+        ingestionConfig={ingestionConfig}
+      />
+      <DocumentList
+        documents={documents}
+        onRemove={handleRemoveDocument}
+        onClearAll={handleClearAllDocuments}
+        onReprocess={handleOpenReprocess}
+        onRetry={handleRetryDocument}
+      />
+
+      {/* Document Comparison - show when 2+ documents available */}
+      {readyDocuments.length >= 2 && (
+        <div className="flex justify-end">
+          <DocumentComparison
+            documents={documents}
+            ragConfig={ragConfig}
+            retrievalConfig={retrievalConfig}
+            outputFormat={outputFormat}
+            popiaConfig={popiaConfig}
+            onReportGenerated={() => {}}
+          />
+        </div>
+      )}
+
+      {/* Step 2: Select Expert Skill or Upload Custom Prompt */}
+      <SkillSelector
+        key={skillsRefreshKey}
+        selectedSkill={selectedSkill}
+        onSkillSelect={handleSkillSelect}
+        onManageSkills={() => setShowSkillManager(true)}
+        onUploadCustom={handleShowCustomUpload}
+      />
+
+      {/* RAG Configuration Panel */}
+      <RagConfigPanel
+        config={ragConfig}
+        onConfigChange={setRagConfig}
+        onOpenAssistant={() => setShowRagAssistant(true)}
+      />
+
+      {/* Retrieval Configuration Panel */}
+      <RetrievalConfigPanel
+        config={retrievalConfig}
+        onConfigChange={setRetrievalConfig}
+      />
+
+      {/* Output Format Configuration Panel */}
+      <OutputFormatPanel
+        config={outputFormat}
+        onConfigChange={setOutputFormat}
+      />
+
+      {/* POPIA Compliance Panel */}
+      <POPIACompliancePanel
+        config={popiaConfig}
+        onConfigChange={setPopiaConfig}
+        lastPIIDetection={lastPIIDetection}
+      />
+
+      {/* Custom Prompt Upload (shown when user chooses to upload custom) */}
+      {showCustomPromptUpload && (
+        <PromptUploader
+          customPrompt={customPrompt}
+          promptFileName={promptFileName}
+          onPromptLoaded={handlePromptLoaded}
+          onPromptRemoved={() => {
+            handlePromptRemoved();
+            setShowCustomPromptUpload(false);
+          }}
+        />
+      )}
+
+      {/* Step 3: Upload Questions */}
+      <QuestionsUploader
+        questionsTemplate={questionsTemplate}
+        questionsFileName={questionsFileName}
+        onQuestionsLoaded={handleQuestionsLoaded}
+        onQuestionsRemoved={handleQuestionsRemoved}
+      />
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gradient-subtle">
@@ -499,140 +557,85 @@ const Index = () => {
           <WorkflowSteps steps={workflowSteps} />
 
           {/* File Upload Section */}
-          <div className="grid lg:grid-cols-[400px,1fr] gap-6">
-            <aside className="space-y-6">
-              {/* Ingestion Configuration (before upload) */}
-              <IngestionConfigPanel
-                config={ingestionConfig}
-                onConfigChange={setIngestionConfig}
-              />
+          {doc ? (
+            /* When an assessment document is open: Sheet sidebar + resizable split */
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Sheet>
+                  <SheetTrigger asChild>
+                    <Button variant="outline" size="sm" className="gap-2">
+                      <Settings className="h-4 w-4" />
+                      Configuration
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent side="left" className="w-[400px] sm:w-[480px] overflow-y-auto">
+                    <div className="pt-6">
+                      {configSidebarContent}
+                    </div>
+                  </SheetContent>
+                </Sheet>
+              </div>
 
-              {/* Step 1: Upload Documents */}
-              <FileUpload
-                onFileSelect={handleFileSelect}
-                selectedFiles={selectedFiles}
-                onUploadComplete={handleFileUpload}
-                onClearSelected={handleClearSelectedFiles}
-                onRemoveFile={handleRemoveFile}
-                ingestionConfig={ingestionConfig}
-              />
-              <DocumentList
-                documents={documents}
-                onRemove={handleRemoveDocument}
-                onClearAll={handleClearAllDocuments}
-                onReprocess={handleOpenReprocess}
-                onRetry={handleRetryDocument}
-              />
-
-              {/* Document Comparison - show when 2+ documents available */}
-              {readyDocuments.length >= 2 && (
-                <div className="flex justify-end">
-                  <DocumentComparison
-                    documents={documents}
-                    ragConfig={ragConfig}
-                    retrievalConfig={retrievalConfig}
-                    outputFormat={outputFormat}
-                    popiaConfig={popiaConfig}
-                    onReportGenerated={handleReportGenerated}
-                  />
-                </div>
-              )}
-
-              {/* Step 2: Select Expert Skill or Upload Custom Prompt */}
-              <SkillSelector
-                key={skillsRefreshKey}
-                selectedSkill={selectedSkill}
-                onSkillSelect={handleSkillSelect}
-                onManageSkills={() => setShowSkillManager(true)}
-                onUploadCustom={handleShowCustomUpload}
-              />
-
-              {/* RAG Configuration Panel */}
-              <RagConfigPanel
-                config={ragConfig}
-                onConfigChange={setRagConfig}
-                onOpenAssistant={() => setShowRagAssistant(true)}
-              />
-
-              {/* Retrieval Configuration Panel */}
-              <RetrievalConfigPanel
-                config={retrievalConfig}
-                onConfigChange={setRetrievalConfig}
-              />
-
-              {/* Output Format Configuration Panel */}
-              <OutputFormatPanel
-                config={outputFormat}
-                onConfigChange={setOutputFormat}
-              />
-
-              {/* POPIA Compliance Panel */}
-              <POPIACompliancePanel
-                config={popiaConfig}
-                onConfigChange={setPopiaConfig}
-                lastPIIDetection={lastPIIDetection}
-              />
-
-              {/* Custom Prompt Upload (shown when user chooses to upload custom) */}
-              {showCustomPromptUpload && (
-                <PromptUploader
-                  customPrompt={customPrompt}
-                  promptFileName={promptFileName}
-                  onPromptLoaded={handlePromptLoaded}
-                  onPromptRemoved={() => {
-                    handlePromptRemoved();
-                    setShowCustomPromptUpload(false);
-                  }}
-                />
-              )}
-
-              {/* Step 3: Upload Questions */}
-              <QuestionsUploader
-                questionsTemplate={questionsTemplate}
-                questionsFileName={questionsFileName}
-                onQuestionsLoaded={handleQuestionsLoaded}
-                onQuestionsRemoved={handleQuestionsRemoved}
-              />
-            </aside>
-
-            {/* Chat Area */}
-            <div className="lg:min-h-[calc(100vh-200px)]">
-              <ChatInterface
-                documents={readyDocuments}
-                onReportGenerated={handleReportGenerated}
-                customPrompt={customPrompt}
-                questionsTemplate={questionsTemplate}
-                resetTrigger={resetTrigger}
-                ragConfig={ragConfig}
-                retrievalConfig={retrievalConfig}
-                outputFormat={outputFormat}
-                popiaConfig={popiaConfig}
-                selectedSkill={selectedSkill}
-                onSkillChange={handleSkillSelect}
-                skillsRefreshKey={skillsRefreshKey}
-                onClearChat={() => {
-                  setGeneratedReport(null);
-                  setReportData(null);
-                }}
-                onComplianceUpdate={(info) => {
-                  if (info) {
-                    setLastPIIDetection({
-                      hasPII: info.piiDetected,
-                      riskLevel: info.riskLevel,
-                      detectedTypes: info.detectedTypes || [],
-                    });
-                  }
-                }}
-              />
+              <div className="lg:min-h-[calc(100vh-200px)]">
+                <ResizablePanelGroup direction="horizontal" className="min-h-[calc(100vh-220px)] rounded-lg border">
+                  <ResizablePanel defaultSize={50} minSize={30}>
+                    <div className="h-full p-2">
+                      <ChatInterface
+                        documents={readyDocuments}
+                        customPrompt={customPrompt}
+                        questionsTemplate={questionsTemplate}
+                        resetTrigger={resetTrigger}
+                        ragConfig={ragConfig}
+                        retrievalConfig={retrievalConfig}
+                        outputFormat={outputFormat}
+                        popiaConfig={popiaConfig}
+                        selectedSkill={selectedSkill}
+                        onSkillChange={handleSkillSelect}
+                        skillsRefreshKey={skillsRefreshKey}
+                        documentSections={doc.sections.map((s) => ({ id: s.id, title: s.title }))}
+                        onAnswerForDocument={handleAnswerForDocument}
+                        onComplianceUpdate={handleComplianceUpdate}
+                        onClearChat={() => { /* keep document open */ }}
+                      />
+                    </div>
+                  </ResizablePanel>
+                  <ResizableHandle withHandle />
+                  <ResizablePanel defaultSize={50} minSize={30}>
+                    <div className="h-full p-2">
+                      <AssessmentDocumentPanel doc={doc} onChange={setDoc} saving={saving} />
+                    </div>
+                  </ResizablePanel>
+                </ResizablePanelGroup>
+              </div>
             </div>
-          </div>
+          ) : (
+            /* No assessment document: classic aside + chat layout */
+            <div className="grid lg:grid-cols-[400px,1fr] gap-6">
+              <aside className="space-y-6">
+                {configSidebarContent}
+              </aside>
 
-          {/* Report Viewer - Only show when report is generated */}
-          {generatedReport && reportData && (
-            <ReportViewer
-              reportHtml={generatedReport}
-              reportData={reportData}
-            />
+              {/* Chat Area */}
+              <div className="lg:min-h-[calc(100vh-200px)]">
+                <ChatInterface
+                  documents={readyDocuments}
+                  customPrompt={customPrompt}
+                  questionsTemplate={questionsTemplate}
+                  resetTrigger={resetTrigger}
+                  ragConfig={ragConfig}
+                  retrievalConfig={retrievalConfig}
+                  outputFormat={outputFormat}
+                  popiaConfig={popiaConfig}
+                  selectedSkill={selectedSkill}
+                  onSkillChange={handleSkillSelect}
+                  skillsRefreshKey={skillsRefreshKey}
+                  documentSections={[]}
+                  onAnswerForDocument={handleAnswerForDocument}
+                  onComplianceUpdate={handleComplianceUpdate}
+                  onClearChat={() => {}}
+                />
+              </div>
+            </div>
           )}
         </div>
       </main>
