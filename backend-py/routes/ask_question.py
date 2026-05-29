@@ -9,7 +9,6 @@ import os
 import re
 import time
 import json
-from datetime import datetime, timezone
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
@@ -179,7 +178,7 @@ Respond with ONLY JSON:
                 "isNew": bool(parsed.get("isNew")),
             }
     except Exception as e:
-        print(f"Section routing failed: {e}")
+        print(f"[WARN] Section routing failed, falling back to sections[0]: {e}")
     return {"targetSectionId": sections[0]["id"], "sectionTitle": sections[0]["title"], "isNew": False}
 
 
@@ -974,8 +973,8 @@ You have been provided with {len(topic_chunks)} relevant section(s) from the sou
             answer = "No answer generated"
 
         # =====================================================
-        # POST-ANSWER SKILLS + REPORT CONTEXT (run concurrently)
-        # Verification, confidence, and report-context all depend only on the
+        # POST-ANSWER SKILLS (run concurrently)
+        # Verification, confidence, and section routing all depend only on the
         # finished `answer` and are independent of each other, so they run in
         # parallel rather than as sequential LLM round-trips. Each task keeps
         # its original guard condition.
