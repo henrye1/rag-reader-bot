@@ -43,6 +43,7 @@ import type { RagConfig, RetrievalConfig } from "@/types/rag-types";
 import type { OutputFormatConfig } from "@/components/OutputFormatPanel";
 import type { POPIAConfig } from "@/components/POPIACompliancePanel";
 import { ComplianceIndicator } from "@/components/POPIACompliancePanel";
+import type { SectionRouting } from "@/lib/appendToSection";
 
 interface DocumentComparisonProps {
   documents: UploadedDocument[];
@@ -50,7 +51,7 @@ interface DocumentComparisonProps {
   retrievalConfig?: RetrievalConfig;
   outputFormat?: OutputFormatConfig;
   popiaConfig?: POPIAConfig;
-  onReportGenerated?: (html: string, data: Record<string, unknown>, isFollowUp?: boolean) => void;
+  onAnswerForDocument?: (question: string, answer: string, routing: SectionRouting | null) => void;
 }
 
 interface ComparisonResult {
@@ -73,7 +74,7 @@ export function DocumentComparison({
   retrievalConfig,
   outputFormat,
   popiaConfig,
-  onReportGenerated,
+  onAnswerForDocument,
 }: DocumentComparisonProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [doc1Id, setDoc1Id] = useState<string>("");
@@ -129,7 +130,6 @@ Provide a structured analysis with clear sections.`;
       const { data, error } = await apiCall("ask-question", {
           question: comparisonQuestion,
           documentIds: [doc1Id, doc2Id],
-          generateReport: true,
           ragConfig: ragConfig,
           retrievalConfig: {
             ...retrievalConfig,
@@ -149,24 +149,8 @@ Provide a structured analysis with clear sections.`;
       const comparisonResult = parseComparisonResponse(data.answer, data);
       setResult(comparisonResult);
 
-      // Generate report if callback provided
-      if (onReportGenerated && data.reportHtml) {
-        // Customize report title for comparison
-        const customizedReport = data.reportHtml.replace(
-          /<h1[^>]*>.*?<\/h1>/i,
-          `<h1 style="color: #2196f3;">DOCUMENT COMPARISON REPORT</h1>
-           <p><strong>Document A:</strong> ${doc1?.name}</p>
-           <p><strong>Document B:</strong> ${doc2?.name}</p>
-           <p><strong>Focus:</strong> ${comparisonFocus || 'General comparison'}</p>`
-        );
-        onReportGenerated(customizedReport, {
-          ...data.reportData,
-          comparisonMode: true,
-          doc1: doc1?.name,
-          doc2: doc2?.name,
-          focus: comparisonFocus,
-        });
-      }
+      // Route answer into the document
+      onAnswerForDocument?.(comparisonQuestion, data.answer, data.sectionRouting ?? null);
 
       toast({
         title: "Comparison Complete",
